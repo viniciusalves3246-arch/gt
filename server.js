@@ -1,120 +1,138 @@
+// server.js - Servidor Node.js para Pixel Block World
 const express = require('express');
-const { spawn } = require('child_process');
+const http = require('http');
+const WebSocket = require('ws');
+const fs = require('fs');
 const path = require('path');
+
 const app = express();
-const PORT = 3000;
+const server = http.createServer(app);
+const wss = new WebSocket.Server({ server });
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// Rota Principal - Interface do Site (Mantida integralmente conforme solicitado)
-app.get('/', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="pt-br">
-        <head>
-            <meta charset="UTF-8">
-            <title>YouTube Downloader Pro</title>
-            <style>
-                body { font-family: Arial, sans-serif; display: flex; flex-direction: column; align-items: center; padding: 50px; background: #f4f4f4; }
-                .container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                input[type="text"] { width: 300px; padding: 10px; margin-bottom: 10px; }
-                select { padding: 10px; margin-bottom: 10px; }
-                button { padding: 10px 20px; cursor: pointer; background: #ff0000; color: white; border: none; border-radius: 4px; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h2>YouTube Downloader (yt-dlp Engine)</h2>
-                <input type="text" id="url" placeholder="Insira a URL do YouTube" required>
-                <br>
-                <select id="format">
-                    <option value="mp4">MP4 (Vídeo)</option>
-                    <option value="mp3">MP3 (Áudio)</option>
-                </select>
-                <br>
-                <button onclick="download()">Baixar Agora</button>
-            </div>
+// Servir arquivos estáticos do diretório atual (index.html, etc.)
+app.use(express.static(__dirname));
 
-            <script>
-                function download() {
-                    const url = document.getElementById('url').value;
-                    const format = document.getElementById('format').value;
-                    if(!url) return alert('Insira uma URL');
-                    
-                    window.location.href = \`/download?url=\${encodeURIComponent(url)}&format=\${format}\`;
+const ARQ_MUNDO = path.join(__dirname, 'mundo_blocos.json');
+let blocos = {};
+if (fs.existsSync(ARQ_MUNDO)) {
+    try {
+        blocos = JSON.parse(fs.readFileSync(ARQ_MUNDO, 'utf8'));
+    } catch (e) {
+        blocos = {};
+    }
+}
+
+function salvarMundo() {
+    fs.writeFileSync(ARQ_MUNDO, JSON.stringify(blocos));
+}
+
+// Lista de jogadores conectados
+const jogadores = new Map();
+
+wss.on('connection', (ws) => {
+    let nomeAtual = null;
+
+    ws.on('message', (message) => {
+        try {
+            const data = JSON.parse(message);
+
+            if (data.tipo === 'entrar' || data.tipo === 'atualizar') {
+                nomeAtual = data.nome;
+                jogadores.set(nomeAtual, {
+                    nome: data.nome,
+                    genero: data.genero || 'm',
+                    x: data.x || 0,
+                    y: data.y || 0,
+                    z: data.z || 0,
+                    rot: data.rot || 0,
+                    emote: data.emote || '',
+                    ultimoAcesso: Date.now()
+                });
+
+                // Se houver blocos modificados enviados pelo cliente
+                if (data.blocos && Array.isArray(data.blocos)) {
+                    let mudou = false;
+                    data.blocos.forEach(bl => {
+                        if (bl.length >= 4) {
+                            const [bx, by, bz, bTipo] = bl;
+                            if (by >= 0 && by < 48 && Math.abs(bx) < 200 && Math.abs(bz) < 200) {
+                                blocos[`${bx},${by},${bz}`] = bTipo;
+                                mudou = true;
+                            }
+                        }
+                    });
+                    if (mudou) salvarMundo();
                 }
-            </script>
-        </body>
-        </html>
-    `);
-});
-
-// Rota de Processamento do Download (Ajustada para Windows e tratamento de erro spawn)
-app.get('/download', (req, res) => {
-    const videoURL = req.query.url;
-    const format = req.query.format;
-
-    if (!videoURL) {
-        return res.status(400).send('URL ausente');
-    }
-
-    let args = [];
-    let filename = `download_${Date.now()}`;
-
-    if (format === 'mp3') {
-        res.header('Content-Disposition', `attachment; filename="${filename}.mp3"`);
-        res.header('Content-Type', 'audio/mpeg');
-        args = [
-            '--quiet',
-            '--no-warnings',
-            '-x', 
-            '--audio-format', 'mp3',
-            '--audio-quality', '0', 
-            '-o', '-', 
-            videoURL
-        ];
-    } else {
-        res.header('Content-Disposition', `attachment; filename="${filename}.mp4"`);
-        res.header('Content-Type', 'video/mp4');
-        args = [
-            '--quiet',
-            '--no-warnings',
-            '-f', 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            '-o', '-', 
-            videoURL
-        ];
-    }
-
-    // No Windows, é recomendável usar o nome completo do executável ou shell: true
-    // Aqui alteramos para procurar o .exe na pasta atual ou PATH
-    const ytDlp = spawn('yt-dlp.exe', args);
-
-    // TRATAMENTO DE ERRO CRÍTICO: Captura o erro de spawn (ex: arquivo não encontrado)
-    // Isso evita o erro "Unhandled 'error' event" que derruba o node
-    ytDlp.on('error', (err) => {
-        console.error('ERRO AO INICIAR YT-DLP:', err.message);
-        if (!res.headersSent) {
-            res.status(500).send('Erro interno: O executável yt-dlp.exe não foi encontrado na pasta do projeto.');
+            }
+        } catch (e) {
+            console.error('Erro ao processar mensagem WS:', e);
         }
     });
 
-    ytDlp.stdout.pipe(res);
-
-    ytDlp.stderr.on('data', (data) => {
-        console.error(`stderr: ${data}`);
-    });
-
-    ytDlp.on('close', (code) => {
-        if (code !== 0 && code !== null) {
-            console.error(`yt-dlp finalizou com código ${code}`);
-        }
-    });
-
-    req.on('close', () => {
-        ytDlp.kill();
+    ws.on('close', () => {
+        if (nomeAtual) jogadores.delete(nomeAtual);
     });
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor rodando em http://localhost:${PORT}`);
+// Remove jogadores inativos a cada 3 segundos
+setInterval(() => {
+    const agora = Date.now();
+    for (const [nome, j] of jogadores.entries()) {
+        if (agora - j.ultimoAcesso > 10000) {
+            jogadores.delete(nome);
+        }
+    }
+}, 3000);
+
+// Loop para transmitir o estado global para todos os clientes conectados via HTTP Polling (substituindo o antigo PHP)
+app.post('/salvar_posicao.php', (req, res) => {
+    try {
+        const dados = JSON.parse(req.body.dados_jogador || '{}');
+        const nome = dados.nome ? dados.nome.substring(0, 16) : '';
+
+        if (nome) {
+            jogadores.set(nome, {
+                nome: nome,
+                genero: dados.genero || 'm',
+                x: parseFloat(dados.x) || 0,
+                y: parseFloat(dados.y) || 0,
+                z: parseFloat(dados.z) || 0,
+                rot: parseFloat(dados.rot) || 0,
+                emote: dados.emote || '',
+                ultimoAcesso: Date.now()
+            });
+
+            if (dados.blocos && Array.isArray(dados.blocos)) {
+                let mudou = false;
+                dados.blocos.forEach(bl => {
+                    if (bl.length >= 4) {
+                        const [bx, by, bz, bTipo] = bl;
+                        if (by >= 0 && by < 48 && Math.abs(bx) < 200 && Math.abs(bz) < 200) {
+                            blocos[`${bx},${by},${bz}`] = bTipo;
+                            mudou = true;
+                        }
+                    }
+                });
+                if (mudou) salvarMundo();
+            }
+        }
+
+        res.json({
+            jogadores: Array.from(jogadores.values()),
+            seq: Date.now(),
+            tempo: Math.floor(Date.now() / 1000),
+            completo: true,
+            blocos: blocos
+        });
+    } catch (e) {
+        res.status(400).json({ erro: 'Requisição inválida' });
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
