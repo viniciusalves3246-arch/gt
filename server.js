@@ -26,6 +26,9 @@ const donos = {};              // nome -> conexão WebSocket dona do nome
 let log = [];                  // eventos de blocos recentes
 let seq = 0;
 let blocos = {};               // "x,y,z" -> tipo
+let cseq = 0;                  // contador de mensagens de chat
+let chatLog = [];              // últimas mensagens {c, n, t}
+const ultimoChatMs = {};       // nome -> hora da última mensagem (anti-spam)
 
 try {
     if (fs.existsSync(ARQ_BLOCOS)) blocos = JSON.parse(fs.readFileSync(ARQ_BLOCOS, 'utf8')) || {};
@@ -57,6 +60,17 @@ function mudarBloco(x, y, z, b) {
 }
 
 // ---------- Lógica compartilhada ----------
+function adicionarChat(nome, txt) {
+    txt = String(txt ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+    if (!txt) return;
+    const agoraMs = Date.now();
+    if (ultimoChatMs[nome] && agoraMs - ultimoChatMs[nome] < 400) return;   // anti-spam
+    ultimoChatMs[nome] = agoraMs;
+    cseq++;
+    chatLog.push({ c: cseq, n: nome, t: txt });
+    if (chatLog.length > 50) chatLog = chatLog.slice(-50);
+}
+
 // Aplica os dados de um jogador (posição + edições de blocos). Retorna o nome ou ''.
 function aplicarJogador(d, agora) {
     if (!d || typeof d !== 'object') return '';
@@ -85,12 +99,16 @@ function aplicarJogador(d, agora) {
             }
         }
     }
+    if (d.chat !== undefined && d.chat !== null) {
+        const lista = Array.isArray(d.chat) ? d.chat.slice(0, 3) : [d.chat];
+        for (const t of lista) adicionarChat(nome, t);
+    }
     return nome;
 }
 
 function limparInativos(agora) {
     for (const k in jogadores) {
-        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; }
+        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; delete ultimoChatMs[k]; }
     }
 }
 
@@ -103,12 +121,18 @@ function precisaCompleto(desde) {
 function sincronizar(corpo) {
     const agora = Math.floor(Date.now() / 1000);
     const desde = Number.isFinite(+corpo.desde) ? Math.trunc(+corpo.desde) : -1;
+    const desdeChat = Number.isFinite(+corpo.desdeChat) ? Math.trunc(+corpo.desdeChat) : -1;
     aplicarJogador(corpo.dados_jogador, agora);
     limparInativos(agora);
     const completo = precisaCompleto(desde);
     const saida = { jogadores: Object.values(jogadores), seq, tempo: agora, completo };
     if (completo) saida.blocos = blocos;
     else saida.eventos = log.filter(l => l.s > desde);
+    saida.cseq = cseq;
+    if (desdeChat >= 0 && desdeChat <= cseq) {
+        const ch = chatLog.filter(c => c.c > desdeChat);
+        if (ch.length) saida.chats = ch;
+    }
     return saida;
 }
 
@@ -276,7 +300,7 @@ server.on('upgrade', (req, socket, head) => {
         `Sec-WebSocket-Accept: ${aceite}\r\n\r\n`
     );
     socket.setNoDelay(true);
-    const cli = { socket, nome: null, enviado: -1, ack: 0, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
+    const cli = { socket, nome: null, enviado: -1, enviadoChat: cseq, ack: 0, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
     clientes.add(cli);
     socket.on('data', chunk => {
         cli.buf = Buffer.concat([cli.buf, chunk]);
@@ -308,7 +332,10 @@ setInterval(() => {
             extra = `,"eventos":${JSON.stringify(ev)}`;
         }
         cli.enviado = seq;
-        enviarTexto(cli, `{"jogadores":${jogStr},"seq":${seq},"tempo":${agora},"completo":${completo},"ack":${cli.ack}${extra}}`);
+        const chats = cli.enviadoChat >= cseq ? [] : chatLog.filter(c => c.c > cli.enviadoChat);
+        cli.enviadoChat = cseq;
+        if (chats.length) extra += `,"chats":${JSON.stringify(chats)}`;
+        enviarTexto(cli, `{"jogadores":${jogStr},"seq":${seq},"tempo":${agora},"completo":${completo},"ack":${cli.ack},"cseq":${cseq}${extra}}`);
     }
 }, TICK_MS);
 
