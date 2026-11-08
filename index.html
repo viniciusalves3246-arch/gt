@@ -488,7 +488,7 @@
             Dir. arrastar: girar · L: travar mouse<br>
             WASD · Espaço · V câmera · F/E quebrar/pôr<br>
             Roda ou [ ]: trocar item · Z X C B emotes<br>
-            Espada: bata em ovelhas/porcos p/ carne<br>
+            Espada: bata em ovelhas/porcos/galinhas p/ carne<br>
             Picareta: quebra pedra e minérios 3x mais rápido<br>
             Pá: quebra terra e areia 3x mais rápido<br>
             Lança: mais dano e mais alcance · Tocha: luz<br>
@@ -505,7 +505,7 @@
         <div id="chat-log"></div>
     </div>
 
-    <div id="dica" class="touch-only">Toque na tela: <b>pôr bloco</b> no lugar tocado<br>Segure o dedo: <b>quebrar/atacar</b> · Arraste: girar<br>Espada: ovelhas/porcos · Picareta: pedra e minério<br>Pá: terra e areia · Lança: mais alcance<br>Tocha: toque no chão p/ iluminar<br>Comandos: /ajuda · /dia · /noite · /chuva · /limpo</div>
+    <div id="dica" class="touch-only">Toque na tela: <b>pôr bloco</b> no lugar tocado<br>Segure o dedo: <b>quebrar/atacar</b> · Arraste: girar<br>Espada: ovelhas/porcos/galinhas · Picareta: pedra e minério<br>Pá: terra e areia · Lança: mais alcance<br>Tocha: toque no chão p/ iluminar<br>Comandos: /ajuda · /dia · /noite · /chuva · /limpo · /coruja</div>
 
     <div id="labels-container"></div>
 
@@ -684,6 +684,7 @@
         const ITEM_CARVAO = IB + 10, ITEM_BARRA_FERRO = IB + 11, ITEM_BARRA_OURO = IB + 12;
         const ITEM_LA = IB + 13, ITEM_CAMA = IB + 14, ITEM_PORTA = IB + 15;
         const ITEM_PAO = IB + 16;   // pão (comestível: enche 3 barras de fome)
+        const ITEM_CARNE_GALINHA = IB + 17, ITEM_PENA = IB + 18;
         const ITEM_MINERIO_FERRO = ID.minerio_ferro - 1, ITEM_MINERIO_OURO = ID.minerio_ouro - 1;
         const ehPedra = (id) => id === ID.rocha || id === ID.pedra || id === ID.musgo || id === ID.pedra_negra
             || id === ID.minerio_carvao || id === ID.minerio_ferro || id === ID.minerio_ouro;   // blocos que a picareta quebra rápido
@@ -748,6 +749,7 @@
         const COMIDA = {};                 // item -> pontos de fome que restaura (2 pontos = 1 ícone cheio)
         COMIDA[NTIPOS + 1] = 1;            // cogumelo: enche metade de um ícone
         COMIDA[ITEM_CARNE] = 2;            // carne: enche um ícone inteiro
+        COMIDA[ITEM_CARNE_GALINHA] = 2;    // carne de galinha: enche um ícone inteiro
         COMIDA[ITEM_PAO] = 6;              // pão: enche 3 ícones de fome
 
         const CAPS = {
@@ -1480,6 +1482,29 @@
                 // riscos de assadura
                 for (let x = 3; x <= 12; x++) p(x, 6, '#7a4a1a');
             });
+            // carne de galinha (coxa com osso) e pena
+            TEX_ITENS.carne_galinha = px16((p) => {
+                for (let y = 1; y <= 9; y++) for (let x = 6; x <= 14; x++) {
+                    const dx = x - 10, dy = y - 5, d = dx * dx / 20 + dy * dy / 17;
+                    if (d <= 1) p(x, y, d > 0.62 ? '#9a5440' : (h2(x, y, 88) < 0.35 ? '#e8b496' : '#dc9a7a'));
+                }
+                p(9, 3, '#f6d2bc'); p(10, 3, '#f6d2bc'); p(8, 4, '#f6d2bc');
+                for (let i = 0; i < 5; i++) { p(7 - i, 9 + i, '#efe6d2'); p(6 - i, 9 + i, '#cfc5ad'); }
+                for (const [x, y] of [[1, 13], [1, 14], [2, 14], [3, 14], [2, 13]]) p(x, y, '#efe6d2');
+                p(1, 14, '#cfc5ad'); p(3, 14, '#cfc5ad');
+            });
+            TEX_ITENS.pena = px16((p) => {
+                const larg = [0, 1, 2, 3, 3, 3, 3, 3, 3, 2, 1, 0];
+                p(1, 14, '#8a7a5a'); p(0, 15, '#8a7a5a');
+                for (let i = 0; i < 12; i++) {
+                    const x = 2 + i, y = 13 - i;
+                    for (let k = 1; k <= larg[i]; k++) {
+                        const cor = k === larg[i] ? '#d9d5ca' : '#ffffff';
+                        p(x + k, y + k, cor); p(x - k, y - k, cor);
+                    }
+                    p(x, y, '#9c9078');
+                }
+            });
             GEO_CRUZ = cruzGeo(1, 1);
         }
 
@@ -1911,7 +1936,7 @@
                 sC.connect(fcH); fcH.connect(fcL); fcL.connect(gC); gC.connect(master);
                 sC.start(0, Math.random());
 
-                audio = { ctx, master, buf, g1, f1, ultimoVento: 0, chuvaG: gC, chuvaF: fcL, ambG, chuvaVol: 0, chuvaFreq: 7000, chuvaInt: 0 };
+                audio = { ctx, master, buf, g1, f1, ultimoVento: 0, chuvaG: gC, chuvaF: fcL, ambG, chuvaVol: 0, chuvaFreq: 7000, chuvaInt: 0, ambVol: 1, chuvaT: 0 };
                 agendarEventosSonoros();
             } catch (e) { audio = null; }
         }
@@ -1994,7 +2019,9 @@
         }
         // piado da coruja: "hu... hu-hu... huuuu" (curto = alarme "hu-hu"); pan = -1 (esquerda) … 1 (direita)
         function sfxCoruja(vol, pan, curto) {
-            if (!audioOk() || vol < 0.003) return;
+            if (!audioOk()) return;
+            vol *= audio.ambVol;
+            if (vol < 0.003) return;
             const { ctx, master } = audio;
             const t0 = ctx.currentTime + 0.02;
             const saida = ctx.createGain(); saida.gain.value = vol;
@@ -2023,7 +2050,9 @@
         }
         // "cri-cri" do grilo: dois grupos de pulsos rápidos num tom agudo
         function sfxGrilo(vol) {
-            if (!audioOk() || vol < 0.004) return;
+            if (!audioOk()) return;
+            vol *= audio.ambVol;
+            if (vol < 0.004) return;
             const { ctx, master } = audio;
             const t = ctx.currentTime + 0.01;
             const o = ctx.createOscillator();
@@ -2039,9 +2068,38 @@
             o.connect(g); g.connect(master);
             o.start(t); o.stop(t + 0.6);
         }
+        // "có-có-có" da galinha; pan = -1 (esquerda) … 1 (direita)
+        function sfxGalinha(vol, pan) {
+            if (!audioOk()) return;
+            vol *= audio.ambVol;
+            if (vol < 0.003) return;
+            const { ctx, master } = audio;
+            const t0 = ctx.currentTime + 0.01;
+            const saida = ctx.createGain(); saida.gain.value = vol;
+            const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1150; bp.Q.value = 0.9;
+            saida.connect(bp);
+            if (ctx.createStereoPanner) {
+                const pn = ctx.createStereoPanner(); pn.pan.value = Math.max(-1, Math.min(1, pan || 0));
+                bp.connect(pn); pn.connect(master);
+            } else bp.connect(master);
+            const nota = (ini, dur, f0, f1) => {
+                const o = ctx.createOscillator(); o.type = 'sawtooth';
+                o.frequency.setValueAtTime(f0, t0 + ini); o.frequency.exponentialRampToValueAtTime(f1, t0 + ini + dur);
+                const g = ctx.createGain();
+                g.gain.setValueAtTime(0.0001, t0 + ini);
+                g.gain.linearRampToValueAtTime(1, t0 + ini + 0.015);
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + ini + dur);
+                o.connect(g); g.connect(saida);
+                o.start(t0 + ini); o.stop(t0 + ini + dur + 0.05);
+            };
+            nota(0, 0.09, 520, 700);
+            nota(0.16, 0.1, 660, 430);
+            if (Math.random() < 0.7) nota(0.31, 0.1, 640, 420);
+            if (Math.random() < 0.35) nota(0.46, 0.12, 620, 400);
+        }
         function agendarEventosSonoros() {
             setTimeout(() => {
-                if (audioOk() && Math.random() > (audio.chuvaInt || 0)) { (DIA_V > 0.5 || Math.random() < 0.55) ? criak() : coruja(); }
+                if (audioOk() && Math.random() < audio.ambVol) { (DIA_V > 0.5 || Math.random() < 0.55) ? criak() : coruja(); }
                 agendarEventosSonoros();
             }, 9000 + Math.random() * 25000);
         }
@@ -2836,6 +2894,10 @@
                 return c;
             }
 
+            // trigo plantado cresce sozinho: semente -> broto -> crescendo -> maduro (a duração de cada fase, em ms)
+            const culturas = new Map();
+            const DUR_CULTURA = {};
+            DUR_CULTURA[ID_PLANTADO] = 20000; DUR_CULTURA[ID_PLANTADO + 1] = 30000; DUR_CULTURA[ID_PLANTADO + 2] = 40000;
             const edits = new Map();
             const editsPorChunk = new Map();
 
@@ -2905,14 +2967,50 @@
                 }
                 // plantação: o trigo é desenhado em cima do arado
                 if (id >= ID_ARADO || idAntes >= ID_ARADO) atualizarCultura(x, y, z);
+                if (id >= ID_PLANTADO && id < ID_MADURO) {
+                    const ce = culturas.get(k);
+                    if (!ce || ce.id !== id) culturas.set(k, { id, t: performance.now() });
+                } else culturas.delete(k);
                 const abaixo = getId(x, y - 1, z);
                 if (abaixo > ID_PLANTADO && abaixo <= ID_MADURO) atualizarCultura(x, y - 1, z);
             }
 
             // sprite do trigo em cima do arado (ids 32..34 = broto, crescendo, maduro -> tipos de planta 5..7)
-            function criarCultura(x, y, z, tp) {
+            function criarCultura(x, y, z, tp, esc) {
                 const r2 = h2(x, z, SEED + 21), r3 = h2(x, z, SEED + 22);
-                return addPlanta(x, y, z, tp, (r2 - 0.5) * 0.12, r3 * Math.PI, (r3 - 0.5) * 0.12, 1.0, 1.0);
+                const e = esc === undefined ? 1.0 : esc;
+                return addPlanta(x, y, z, tp, (r2 - 0.5) * 0.12, r3 * Math.PI, (r3 - 0.5) * 0.12, e, e);
+            }
+            // tamanho do sprite dentro da fase atual: cresce de 60% a 100% até a próxima fase
+            function escalaCultura(x, y, z, id) {
+                const c = culturas.get(numKey(x, y, z)), dur = DUR_CULTURA[id];
+                if (!c || !dur) return 1;
+                return 0.6 + 0.4 * clamp((performance.now() - c.t) / dur, 0, 1);
+            }
+            let culturaT = 0;
+            function atualizarCulturas(dt) {
+                if (!culturas.size) return;
+                culturaT += dt;
+                if (culturaT < 0.35) return;
+                culturaT = 0;
+                const agora = performance.now();
+                for (const [k, c] of Array.from(culturas)) {
+                    const [x, y, z] = decodeKey(k);
+                    const id = getId(x, y, z);
+                    if (id < ID_PLANTADO || id >= ID_MADURO) { culturas.delete(k); continue; }
+                    const dur = DUR_CULTURA[id];
+                    if (agora - c.t >= dur) {                      // passa para a próxima fase (e avisa o servidor)
+                        aplicarEdicao(x, y, z, id + 1);
+                        pend.delete(k);
+                        bufferEdicoes.push([x, y, z, id + 1]);
+                        if (chunkRender(x, z) && Math.hypot(x - posX, z - posZ) < 30) explodirBloco(x, y + 1, z, 0, 0x7fcf55);
+                        continue;
+                    }
+                    if (id > ID_PLANTADO) {                        // animação: o broto vai crescendo aos poucos
+                        const tp = plantaTipo.get(numKey(x, y + 1, z));
+                        if (tp !== undefined && tp >= 5 && tp <= 7) criarCultura(x, y + 1, z, tp, 0.6 + 0.4 * clamp((agora - c.t) / dur, 0, 1));
+                    }
+                }
             }
             function atualizarCultura(x, y, z) {
                 if (y + 1 >= YMAX) return;
@@ -2924,7 +3022,7 @@
                 if (atual !== undefined) remPlanta(ka);
                 if (tpD >= 0) {
                     const c = chunkRender(x, z);
-                    if (c) c.plantas.push(criarCultura(x, y + 1, z, tpD));
+                    if (c) c.plantas.push(criarCultura(x, y + 1, z, tpD, tpD === 7 ? 1 : escalaCultura(x, y, z, id)));
                 }
             }
 
@@ -3379,6 +3477,8 @@
             ITENS.push({ nome: 'Cama', tex: TEX_ITENS.cama, icone: TEX_ITENS.cama.image.toDataURL(), cor: 0xc23a3a });
             ITENS.push({ nome: 'Porta', tex: TEX_ITENS.porta, icone: TEX_ITENS.porta.image.toDataURL(), cor: 0xa97f4b });
             ITENS.push({ nome: 'Pão', tex: TEX_ITENS.pao, icone: TEX_ITENS.pao.image.toDataURL(), cor: 0xe8c97a });
+            ITENS.push({ nome: 'Carne de Galinha', tex: TEX_ITENS.carne_galinha, icone: TEX_ITENS.carne_galinha.image.toDataURL(), cor: 0xdc9a7a });
+            ITENS.push({ nome: 'Pena', tex: TEX_ITENS.pena, icone: TEX_ITENS.pena.image.toDataURL(), cor: 0xf2f0ea });
             const NITENS = ITENS.length;
             const NSLOTS = 9;
             const barra = new Array(NSLOTS).fill(-1);   // índice em ITENS, ou -1 = vazio
@@ -3789,11 +3889,12 @@
                 else if (['/noite', '/night'].indexOf(c) >= 0) definirTempo(0.72);
                 else if (['/chuva', '/rain'].indexOf(c) >= 0) definirClima('chuva');
                 else if (['/limpo', '/clear', '/ceu-limpo', '/parar-chuva'].indexOf(c) >= 0) definirClima('limpo');
+                else if (['/coruja', '/corujas', '/owl'].indexOf(c) >= 0) chamarCoruja();
                 else if (['/ajuda', '/help', '/comandos', '/cmd'].indexOf(c) >= 0) mostrarAjuda();
                 else msgSistema('Comando desconhecido. Use /ajuda para ver a lista de comandos.');
             }
             function mostrarAjuda() {
-                msgSistema('Comandos: /ajuda · /dia · /noite · /chuva · /limpo · /sobrevivencia · /sandbox');
+                msgSistema('Comandos: /ajuda · /dia · /noite · /chuva · /limpo · /coruja · /sobrevivencia · /sandbox');
                 msgSistema('Craft: picareta = 3 tábuas + 2 gravetos · pá = 1 tábua + 2 gravetos');
                 msgSistema('Craft: lança = 1 tábua + 2 gravetos (na horizontal) · tocha = 1 carvão + 1 graveto');
                 msgSistema('Craft: barra de ferro/ouro = 1 minério do mesmo tipo');
@@ -5061,7 +5162,11 @@
                 audio.chuvaFreq += (freqAlvo - audio.chuvaFreq) * k;
                 audio.chuvaG.gain.value = audio.chuvaVol;
                 audio.chuvaF.frequency.value = audio.chuvaFreq;
-                audio.ambG.gain.value = 1 - 0.8 * intChuva;
+                // som ambiente: some 3 s depois que a chuva começa (fica só o som da chuva) e volta aos poucos quando ela passa
+                if (clima === 'chuva') audio.chuvaT += dt; else audio.chuvaT = 0;
+                const alvoAmb = clima === 'chuva' ? (audio.chuvaT > 3 ? 0 : 1 - 0.8 * intChuva) : 1 - intChuva;
+                audio.ambVol += (alvoAmb - audio.ambVol) * Math.min(1, dt * (alvoAmb < audio.ambVol ? 2.5 : 0.6));
+                audio.ambG.gain.value = audio.ambVol;
                 audio.chuvaInt = intChuva;
             }
             const horaEl = document.getElementById('hora');
@@ -5135,8 +5240,9 @@
                 RAIO: 0.35, ALTURA: 1.1, VEL: 1.25
             };
             const mobs = [];
-            let tSpawn = 0, tSpawnZ = 4;
-            const MOB_TIPOS = ['ovelha', 'porco', 'zumbi'];     // índice usado no protocolo com o servidor
+            let tSpawn = 0, tSpawnZ = 4, tSpawnG = 2;
+            const mobsPrincipais = () => { let n = 0; for (const m of mobs) if (!m.local) n++; return n; };   // galinhas (locais) não entram no limite
+            const MOB_TIPOS = ['ovelha', 'porco', 'zumbi', 'galinha'];     // índice usado no protocolo com o servidor
             const mobsPorId = new Map();                         // id do servidor -> mob
             const mobsNovosPend = [];                            // [tipo,x,y,z] pedidos de criação
             const mobsDanoPend = [];                             // [id,dano,dirX,dirZ,fogo] danos que causei
@@ -5199,6 +5305,57 @@
                 const mats = [mCorpo, mPerna, mCab, mRosto];
                 if (mFoc) mats.push(mFoc);
                 return { grupo: g, pernas, cabeca, mats };
+            }
+
+            // ---------- Modelo da galinha ----------
+            function criarGalinhaModelo() {
+                const mBranco = mobMat(0xf4f1ea, 0.12), mAsa = mobMat(0xe2ddd2, 0.12), mPe = mobMat(0xe8a928, 0.08);
+                const mBico = mobMat(0xf0a020, 0.05), mCrista = mobMat(0xd22b2b, 0.1);
+                const rostoLado = (ex, seed) => new THREE.MeshLambertMaterial({
+                    map: pixTex(8, 8, (p) => {
+                        const r = criarPRNG(seed);
+                        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) p(x, y, variaCor(0xf4f1ea, 0.08, r));
+                        p(ex, 3, '#111111');
+                    }, false)
+                });
+                const mLadoD = rostoLado(2, 41), mLadoE = rostoLado(5, 42);
+                const box = (w, h, l, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, l), m);
+                const g = new THREE.Group();
+                const legH = 0.26;
+                const corpo = box(0.4, 0.4, 0.56, mBranco);
+                corpo.position.y = legH + 0.2;
+                g.add(corpo);
+                const cauda = box(0.22, 0.26, 0.1, mBranco);
+                cauda.position.set(0, legH + 0.42, -0.3); cauda.rotation.x = -0.35;
+                g.add(cauda);
+                const pernas = [];
+                const pernaGrp = [];
+                for (const sx of [1, -1]) {
+                    const pv = new THREE.Group();
+                    pv.position.set(sx * 0.1, legH, 0.02);
+                    const pm = box(0.06, legH, 0.06, mPe); pm.position.y = -legH / 2;
+                    const pe = box(0.12, 0.03, 0.15, mPe); pe.position.set(0, -legH + 0.015, 0.035);
+                    pv.add(pm, pe); g.add(pv); pernaGrp.push(pv);
+                }
+                pernas.push(pernaGrp[0], pernaGrp[1], pernaGrp[1], pernaGrp[0]);   // mesma ordem das 4 pernas dos outros bichos
+                const asas = [];
+                for (const sx of [1, -1]) {
+                    const pv = new THREE.Group();
+                    pv.position.set(sx * 0.225, legH + 0.36, 0);
+                    const am = box(0.05, 0.26, 0.34, mAsa); am.position.y = -0.13;
+                    pv.add(am); pv.rotation.z = sx * 0.05; g.add(pv); asas.push({ pv, sx });
+                }
+                const cabeca = new THREE.Group();
+                cabeca.position.set(0, legH + 0.32, 0.2);
+                const pescoco = box(0.12, 0.14, 0.12, mBranco); pescoco.position.set(0, 0.05, 0.02);
+                const cm = box(0.2, 0.2, 0.2, [mLadoD, mLadoE, mBranco, mBranco, mBranco, mBranco]);
+                cm.position.set(0, 0.12, 0.06);
+                const bico = box(0.1, 0.05, 0.1, mBico); bico.position.set(0, 0.1, 0.185);
+                const barbela = box(0.04, 0.07, 0.04, mCrista); barbela.position.set(0, 0.04, 0.16);
+                const crista = box(0.05, 0.07, 0.12, mCrista); crista.position.set(0, 0.25, 0.06);
+                cabeca.add(pescoco, cm, bico, barbela, crista);
+                g.add(cabeca);
+                return { grupo: g, pernas, cabeca, asas, mats: [mBranco, mAsa, mPe, mBico, mCrista, mLadoD, mLadoE] };
             }
 
             // ---------- Modelo do zumbi (pele verde, camisa azul, braços esticados) ----------
@@ -5303,7 +5460,7 @@
             // id > 0: mob do servidor (o dono simula, os outros interpolam) · id <= 0: mob local (offline)
             function criarMob(tipo, x, y, z, id) {
                 const zumbi = tipo === 'zumbi';
-                const mod = zumbi ? criarZumbiModelo() : criarMobModelo(tipo);
+                const mod = zumbi ? criarZumbiModelo() : tipo === 'galinha' ? criarGalinhaModelo() : criarMobModelo(tipo);
                 const m = {
                     tipo, x, y, z, rot: Math.random() * 6.283, alvoRot: 0, vy: 0, noChao: true,
                     estado: 0, t: 1 + Math.random() * 3, comeu: false,   // 0 parado · 1 andando · 2 comendo
@@ -5311,7 +5468,8 @@
                     hp: zumbi ? 20 : 4, hpMax: zumbi ? 20 : 4, hurt: 0, morto: false, mats: mod.mats,
                     hostil: zumbi, surgindo: zumbi ? 1.6 : 0, bracos: mod.bracos || null,
                     danoEspera: 0, queimando: 0, id: id || 0, meu: !(id > 0), dono: '', snaps: null, fogoAcc: 0,
-                    mesh: mod.grupo, pernas: mod.pernas, cabeca: mod.cabeca, blob: criarBlob()
+                    mesh: mod.grupo, pernas: mod.pernas, cabeca: mod.cabeca, blob: criarBlob(),
+                    asas: mod.asas || null, local: false, cacT: 3 + Math.random() * 10, cacar: 0, persegue: 0, veT: 0
                 };
                 m.alvoRot = m.rot;
                 m.mesh.position.set(x, y, z);
@@ -5333,7 +5491,7 @@
             }
             // Tenta criar UM grupo (1 a 2 mobs da mesma espécie). Retorna true se criou.
             function tentarSpawn(local) {
-                if (mobs.length >= MOB.MAX || mobsNovosPend.length) return false;
+                if (mobsPrincipais() >= MOB.MAX || mobsNovosPend.length) return false;
                 const ang = Math.random() * 6.283;
                 const d = MOB.DIST_MIN + Math.random() * (MOB.DIST_MAX - MOB.DIST_MIN);
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
@@ -5342,7 +5500,7 @@
                 const y = soloMob(x, z);
                 if (y < 0) return false;
                 const tipo = Math.random() < 0.5 ? 'ovelha' : 'porco';
-                const n = Math.min(MOB.GRUPO_MAX, MOB.MAX - mobs.length, Math.random() < 0.45 ? 2 : 1);
+                const n = Math.min(MOB.GRUPO_MAX, MOB.MAX - mobsPrincipais(), Math.random() < 0.45 ? 2 : 1);
                 pedirMob(tipo, x, y, z, local);
                 if (n > 1) {
                     const px = x + (Math.random() < 0.5 ? -2 : 2), pz = z + (Math.random() < 0.5 ? -2 : 2);
@@ -5410,19 +5568,29 @@
                 // máquina de estados (parado → anda ou come → parado …)
                 if (m.estado === 0) {
                     if (m.t <= 0) {
-                        if (Math.random() < 0.3 && podeComer(m)) { m.estado = 2; m.t = 2.4; m.comeu = false; }
+                        if (Math.random() < 0.3 && !m.hostil && podeComer(m)) { m.estado = 2; m.t = 2.4; m.comeu = false; }
                         else { m.estado = 1; m.t = 2.5 + Math.random() * 4; m.alvoRot = Math.random() * 6.283; }
                     }
                 } else if (m.estado === 1) {
                     if (m.t <= 0) { m.estado = 0; m.t = 1.5 + Math.random() * 4.5; }
                 } else {
-                    if (!m.comeu && m.t < 1.0) comer(m);
+                    if (!m.comeu && m.t < 1.0) { if (m.tipo === 'galinha') m.comeu = true; else comer(m); }
                     if (m.t <= 0) { m.estado = 0; m.t = 1 + Math.random() * 2; }
                 }
 
                 // movimento horizontal
                 let v = 0;
-                if (m.hostil) {                                   // zumbi: persegue o jogador
+                if (m.hostil) {
+                    m.veT -= dt;
+                    if (m.veT <= 0) {
+                        m.veT = 0.3;
+                        const av = alvoZumbi(m), dv = Math.hypot(av.x - m.x, av.z - m.z);
+                        if (dv < 11 && zumbiVe(m, av)) m.persegue = 4;
+                        else if (dv > 18) m.persegue = 0;
+                    }
+                    m.persegue = Math.max(0, m.persegue - dt);
+                }
+                if (m.hostil && m.persegue > 0) {                 // zumbi: persegue o jogador que viu
                     const al = alvoZumbi(m);
                     const dx = al.x - m.x, dz = al.z - m.z;
                     const dd = Math.hypot(dx, dz);
@@ -5464,6 +5632,7 @@
 
                 // gravidade
                 m.vy = Math.max(-30, m.vy - GRAVIDADE * dt);
+                if (m.tipo === 'galinha' && m.vy < -2.5) m.vy = -2.5;   // galinha plana batendo as asas
                 const ny = m.y + m.vy * dt;
                 if (!colideMob(m.x, ny, m.z)) { m.y = ny; m.noChao = false; }
                 else {
@@ -5480,15 +5649,35 @@
                 const alvoCab = m.estado === 2 ? 0.95 + Math.sin(m.t * 11) * 0.12 : 0;
                 m.cabRot += (alvoCab - m.cabRot) * (1 - Math.exp(-10 * dt));
                 m.cabeca.rotation.x = m.cabRot;
+                if (m.tipo === 'galinha') {
+                    m.cacT -= dt;
+                    if (m.cacT <= 0) { m.cacT = 6 + Math.random() * 14; cacarejar(m); }
+                    if (m.cacar > 0) { m.cacar -= dt; m.cabeca.rotation.x = m.cabRot - 0.4 * Math.sin(Math.min(1, m.cacar * 1.7) * Math.PI); }
+                    if (m.asas) {
+                        const f = !m.noChao ? 0.9 + Math.sin(performance.now() / 1000 * 32) * 0.5 : 0.05;
+                        for (const a of m.asas) a.pv.rotation.z = a.sx * f;
+                    }
+                }
             }
 
             // zumbi persegue o jogador mais próximo (eu ou outro jogador online)
+            // o zumbi só enxerga o jogador até 11 blocos e sem bloco no meio; depois de ver, persegue por 4 s e desiste se você passar de 18 blocos
+            function zumbiVe(m, al) {
+                const ax = m.x, ay = m.y + 1.6, az = m.z;
+                const dx = al.x - ax, dy = (al.y + 1.5) - ay, dz = al.z - az;
+                const n = Math.max(1, Math.ceil(Math.hypot(dx, dy, dz) / 0.5));
+                for (let i = 1; i < n; i++) {
+                    const t = i / n, b = getBloco(Math.floor(ax + dx * t + 0.5), Math.floor(ay + dy * t), Math.floor(az + dz * t + 0.5));
+                    if (ehSolidoBloco(b) && b !== ID.vidro) return false;
+                }
+                return true;
+            }
             function alvoZumbi(m) {
-                let melhor = { x: posX, z: posZ }, md = Math.hypot(posX - m.x, posZ - m.z);
+                let melhor = { x: posX, z: posZ, y: posY }, md = Math.hypot(posX - m.x, posZ - m.z);
                 for (const k in remotos) {
                     const rp = remotos[k].mesh.position;
                     const d = Math.hypot(rp.x - m.x, rp.z - m.z);
-                    if (d < md) { md = d; melhor = { x: rp.x, z: rp.z }; }
+                    if (d < md) { md = d; melhor = { x: rp.x, z: rp.z, y: rp.y }; }
                 }
                 return melhor;
             }
@@ -5529,7 +5718,7 @@
             // ---------- Servidor -> cliente: lista de mobs, dano e morte ----------
             function sincronizarMobs(lista) {
                 const agoraMs = performance.now();
-                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id <= 0) removerMob(i);   // mobs locais (offline) saem quando o servidor assume
+                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id <= 0 && !mobs[i].local) removerMob(i);   // mobs locais (offline) saem quando o servidor assume
                 const vistos = new Set();
                 for (const d of lista) {
                     const id = d[0];
@@ -5561,7 +5750,7 @@
                 for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
                 m.mesh.scale.set(1.08, 0.9, 1.08);
                 explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
-                if (Math.hypot(m.x - posX, m.z - posZ) < 30) sfxMobDano();
+                if (Math.hypot(m.x - posX, m.z - posZ) < 30) sfxMobDano(m.tipo);
             }
             // quem simula o mob reage ao golpe (foge e é empurrado)
             function reacaoDanoMob(m, dirX, dirZ, atX, atZ) {
@@ -5599,6 +5788,11 @@
                 if (tSpawn <= 0) {
                     tSpawn = MOB.INTERVALO;
                     for (let i = 0; i < 6 && !tentarSpawn(); i++);
+                }
+                tSpawnG -= dt;
+                if (tSpawnG <= 0) {
+                    tSpawnG = 4;
+                    for (let i = 0; i < 5 && !tentarSpawnGalinha(); i++);
                 }
                 tSpawnZ -= dt;
                 if (tSpawnZ <= 0) {
@@ -5640,9 +5834,43 @@
                         m.bracos[0].rotation.x = 0.22 + bal; m.bracos[1].rotation.x = 0.22 - bal;
                     }
                     atualizarBlob(m, m.x, m.y, m.z);
+                    if (m.tipo === 'galinha') m.blob.scale.multiplyScalar(0.55);
                 }
             }
             for (let i = 0; i < 4; i++) tentarSpawn(true);   // população inicial (local; com servidor, os mobs vêm dele)
+
+            // ---------- Galinhas: ficam só no seu jogo (não dependem do servidor), andam pelo mapa e cacarejam ----------
+            const GALINHA_MAX = IS_TOUCH ? 3 : 4;
+            const _pvg = new THREE.Vector3();
+            function tentarSpawnGalinha() {
+                let n = 0;
+                for (const m of mobs) if (m.tipo === 'galinha') n++;
+                if (n >= GALINHA_MAX) return false;
+                const ang = Math.random() * 6.283, d = 14 + Math.random() * 26;
+                const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
+                if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;
+                for (const m of mobs) if (m.tipo === 'galinha' && Math.hypot(m.x - x, m.z - z) < 12) return false;
+                const y = soloMob(x, z);
+                if (y < 0) return false;
+                const qtd = Math.min(GALINHA_MAX - n, Math.random() < 0.5 ? 2 : 1);
+                for (let i = 0; i < qtd; i++) {
+                    const px = i ? x + (Math.random() < 0.5 ? -2 : 2) : x, pz = i ? z + (Math.random() < 0.5 ? -2 : 2) : z;
+                    const py = i ? (chunks.has(ckKey(px >> 4, pz >> 4)) ? soloMob(px, pz) : -1) : y;
+                    if (py < 0) continue;
+                    const m = criarMob('galinha', px, py, pz, 0);
+                    m.local = true;
+                }
+                return true;
+            }
+            function cacarejar(m) {
+                m.cacar = 0.6;
+                const dj = Math.hypot(m.x - posX, m.y - posY, m.z - posZ), alc = 34;
+                if (dj >= alc) return;
+                camera.updateMatrixWorld();
+                _pvg.set(m.x, m.y + 0.5, m.z); camera.worldToLocal(_pvg);
+                sfxGalinha(0.3 * Math.pow(1 - dj / alc, 2), _pvg.x / Math.max(1, _pvg.length()));
+            }
+            for (let i = 0; i < 3; i++) tentarSpawnGalinha();
 
             // ============================================================
             // GRILOS — no máximo 2 no mapa: saltam pela grama e fazem cri-cri
@@ -5812,6 +6040,13 @@
                 scene.remove(c.mesh); scene.remove(c.blob);
                 descartarPersonagem(c);
                 corujas.splice(i, 1);
+            }
+            // /coruja: vira noite e faz até 2 corujas aparecerem nas árvores perto de você
+            function chamarCoruja() {
+                if (DIA_V > 0.38) { definirTempo(0.72); DIA_V = 0; }
+                let n = 0;
+                for (let i = 0; i < 25 && n < 2 && corujas.length < CORUJA.MAX; i++) if (tentarSpawnCoruja()) n++;
+                msgSistema(n ? 'Corujas apareceram nas árvores perto de você.' : 'Não achei árvore alta por perto: chegue perto de uma floresta e tente de novo.');
             }
             function tentarSpawnCoruja() {
                 const a = acharArvore(posX, posZ, CORUJA.DIST_MIN, CORUJA.DIST_MAX, 0, 0, 0);
@@ -6102,16 +6337,17 @@
                     if (m.morto) continue;
                     const dJog = Math.hypot(m.x - posX, m.y + 0.5 - (posY + 1.0), m.z - posZ);
                     if (dJog > alcanceAtaque()) continue;
-                    const alt = m.tipo === 'porco' ? 0.95 : 1.05;
+                    const gal = m.tipo === 'galinha';
+                    const alt = m.hostil ? 2.0 : gal ? 0.9 : m.tipo === 'porco' ? 0.95 : 1.05, hw = m.hostil ? 0.55 : gal ? 0.35 : 0.5;   // zumbi: 2 blocos de altura
                     const t = raioCaixa(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z,
-                        m.x - 0.5, m.y + 0.05, m.z - 0.5,
-                        m.x + 0.5, m.y + alt, m.z + 0.5);
+                        m.x - hw, m.y + 0.05, m.z - hw,
+                        m.x + hw, m.y + alt, m.z + hw);
                     if (t >= 0 && t < melhorT) { melhorT = t; melhor = m; }
                 }
                 if (!melhor) return null;
                 // linha de visão: não dá para bater através de blocos
                 const ax = posX, ay = posY + 1.55, az = posZ;
-                const dx = melhor.x - ax, dy = (melhor.y + 0.55) - ay, dz = melhor.z - az;
+                const dx = melhor.x - ax, dy = (melhor.y + (melhor.hostil ? 1.0 : 0.55)) - ay, dz = melhor.z - az;
                 const dd = Math.hypot(dx, dy, dz);
                 const passos = Math.max(1, Math.ceil(dd / 0.25));
                 for (let i = 1; i < passos; i++) {
@@ -6121,12 +6357,13 @@
                 return melhor;
             }
 
-            function sfxMobDano() {
+            function sfxMobDano(tipo) {
                 rajada(0.09, 'lowpass', 900, 1, 0.35);
-                tom(260 + Math.random() * 80, 150, 0.12, 0.18, 'square');
+                if (tipo === 'galinha') tom(900 + Math.random() * 120, 520, 0.12, 0.16, 'square');
+                else tom(260 + Math.random() * 80, 150, 0.12, 0.18, 'square');
             }
             function sfxMobMorte(tipo) {
-                const f = tipo === 'porco' ? 220 : 420;
+                const f = tipo === 'porco' ? 220 : tipo === 'galinha' ? 640 : 420;
                 tom(f, f * 0.45, 0.3, 0.22, 'square');
                 rajada(0.22, 'lowpass', 500, 0.8, 0.3);
             }
@@ -6178,6 +6415,10 @@
                 if (modoJogo === 'sobrevivencia') {
                     if (m.hostil) {
                         // zumbi não solta carne
+                    } else if (m.tipo === 'galinha') {
+                        soltarItemLocal(m.x, m.y, m.z, ITEM_CARNE_GALINHA, 0.5);
+                        const np = 1 + (Math.random() < 0.5 ? 1 : 0);          // 1 ou 2 penas
+                        for (let k = 0; k < np; k++) soltarItemLocal(m.x, m.y, m.z, ITEM_PENA, 0.5);
                     } else {
                         const qtd = 1 + (Math.random() < 0.5 ? 1 : 0);     // 1 ou 2 carnes
                         for (let k = 0; k < qtd; k++) soltarItem(m.x, m.y, m.z, ITEM_CARNE, 0.5);
@@ -6187,7 +6428,7 @@
                     avisoCarne = true;
                     msgSistema('Os animais só soltam carne para pegar no modo sobrevivência (/sobrevivencia).');
                 }
-                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, m.hostil ? 0x4e7f3a : 0x8f2f24);
+                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, m.hostil ? 0x4e7f3a : m.tipo === 'galinha' ? 0xf2f2f2 : 0x8f2f24);
                 sfxMobMorte(m.tipo);
                 removerMob(i);
             }
@@ -6252,6 +6493,10 @@
                 const px = +(x + (Math.random() - 0.5) * 0.3).toFixed(2), py = +(y + (dy === undefined ? 0.5 : dy)).toFixed(2), pz = +(z + (Math.random() - 0.5) * 0.3).toFixed(2);
                 if (conectado()) dropsNovosPend.push([px, py, pz, item]);
                 else addDrop(--idLocal, px, py, pz, item);
+            }
+            // item que só existe no seu jogo (usado pelas galinhas, que também são locais)
+            function soltarItemLocal(x, y, z, item, dy) {
+                addDrop(--idLocal, +(x + (Math.random() - 0.5) * 0.3).toFixed(2), +(y + (dy === undefined ? 0.5 : dy)).toFixed(2), +(z + (Math.random() - 0.5) * 0.3).toFixed(2), item);
             }
             function sincronizarDrops(lista) {
                 const ids = new Set();
@@ -6502,6 +6747,7 @@
                 atualizarGrilos(dt, tempoJogo);
                 atualizarCorujas(dt, tempoJogo);
                 atualizarDrops(dt, tempoJogo);
+                atualizarCulturas(dt);
 
                 if (balloonEl.style.display !== 'none') {
                     _v.set(posX, posY + 1.8, posZ).project(camera);
@@ -6575,7 +6821,7 @@
                 {
                     if (dormindo) qOn = false;
                     const itSel = barra[slotSel];
-                    const podeComer = modoJogo === 'sobrevivencia' && itSel >= 0 && barraQtd[slotSel] > 0 && COMIDA[itSel] > 0 && fome < FOME_MAX - 0.01;
+                    const podeComer = modoJogo === 'sobrevivencia' && itSel >= 0 && barraQtd[slotSel] > 0 && COMIDA[itSel] > 0 && Math.ceil(fome - 1e-6) < FOME_MAX;   // mesma conta da barra: cheia na tela = não come
                     if (!qOn) comerBloq = false;
                     if (qOn && podeComer && !comerBloq) {          // segurar com comida na mão: come em vez de quebrar
                         if (comerSlot !== slotSel) { comerSlot = slotSel; comerT = 0; }
