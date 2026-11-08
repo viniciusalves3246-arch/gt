@@ -175,6 +175,53 @@
             pointer-events: none;
         }
 
+        .pixel-balloon.chat {
+            font-size: 9px;
+            line-height: 1.5;
+            max-width: min(70vw, 220px);
+            white-space: normal;
+            text-align: center;
+            overflow-wrap: anywhere;
+            padding: 5px 8px;
+        }
+        #chat-box {
+            position: absolute;
+            left: calc(10px + var(--sal));
+            top: 130px;
+            z-index: 14;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            width: min(300px, 58vw);
+        }
+        #chat-row { display: flex; gap: 6px; }
+        #chatInput {
+            flex: 1;
+            min-width: 0;
+            padding: 8px;
+            font-family: inherit;
+            font-size: 9px;
+            background: rgba(0, 0, 0, 0.65);
+            color: #fff;
+            border: 3px solid #222;
+            outline: none;
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        #chatInput:focus { border-color: #7dff9b; }
+        #chatSend { padding: 0 10px; font-size: 8px; height: 36px; }
+        #chat-log { font-size: 8px; line-height: 1.6; color: #fff; text-shadow: 1px 1px #000; pointer-events: none; }
+        #chat-log div {
+            background: rgba(0, 0, 0, 0.55);
+            padding: 3px 6px;
+            margin-bottom: 3px;
+            width: fit-content;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            animation: chatFade 14s forwards;
+        }
+        @keyframes chatFade { 0%, 85% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
         .btn-ui {
             background: rgba(120, 120, 120, 0.7);
             border: 3px solid #2b2b2b;
@@ -347,6 +394,14 @@
             WASD · Espaço · V câmera · F/E quebrar/pôr<br>
             Roda ou [ ]: trocar bloco · Z X C B emotes
         </div>
+    </div>
+
+    <div id="chat-box">
+        <div id="chat-row">
+            <input id="chatInput" type="text" maxlength="100" placeholder="Chat..." autocomplete="off" enterkeyhint="send">
+            <button id="chatSend" class="btn-ui" tabindex="-1">Enviar</button>
+        </div>
+        <div id="chat-log"></div>
     </div>
 
     <div id="dica" class="touch-only">Toque na tela: <b>pôr bloco</b> no lugar tocado<br>Segure o dedo: <b>quebrar</b> · Arraste: girar</div>
@@ -1749,6 +1804,72 @@
                 btn.addEventListener('click', () => dispararEmote(btn.dataset.emote));
             });
 
+            // ---------- Chat ----------
+            const chatBox = document.getElementById('chat-box');
+            const chatInput = document.getElementById('chatInput');
+            const chatSend = document.getElementById('chatSend');
+            const chatLogEl = document.getElementById('chat-log');
+            const chatPend = [];             // mensagens aguardando envio
+            let ultimoChat = -1;             // último id de chat recebido
+            const meuBalao = document.createElement('div');
+            meuBalao.className = 'pixel-balloon chat';
+            meuBalao.style.display = 'none';
+            document.body.appendChild(meuBalao);
+            let meuBalaoAte = 0;
+            const balaos = {};               // nome -> { el, ate } (balões dos outros jogadores)
+
+            function posicionarChat() {
+                const h = document.getElementById('hud');
+                chatBox.style.top = (h.offsetTop + h.offsetHeight + 8) + 'px';
+            }
+            posicionarChat();
+            window.addEventListener('resize', posicionarChat);
+            setInterval(posicionarChat, 1500);
+
+            function enviarChat() {
+                const t = chatInput.value.replace(/\s+/g, ' ').trim().slice(0, 100);
+                chatInput.value = '';
+                chatInput.blur();
+                if (!t) return;
+                chatPend.push(t);
+                meuBalao.innerText = t;
+                meuBalao.style.display = 'block';
+                meuBalaoAte = performance.now() + 7000;
+            }
+            chatSend.addEventListener('click', () => { enviarChat(); chatSend.blur(); });
+            chatInput.addEventListener('keydown', e => {
+                e.stopPropagation();         // teclas digitadas não movem o personagem
+                if (e.key === 'Enter') { e.preventDefault(); enviarChat(); }
+                else if (e.key === 'Escape') chatInput.blur();
+            });
+            chatInput.addEventListener('focus', () => { kb.up = kb.down = kb.left = kb.right = kb.jump = kb.quebrar = 0; });
+            ['pointerdown', 'mousedown', 'touchstart', 'touchend', 'wheel'].forEach(ev =>
+                chatBox.addEventListener(ev, e => e.stopPropagation(), { passive: true }));
+
+            function receberChat(nome, txt) {
+                const linha = document.createElement('div');
+                const n = document.createElement('b');
+                n.textContent = nome + ': ';
+                n.style.color = nome === meuNome ? '#7dff9b' : '#ffd36b';
+                linha.appendChild(n);
+                linha.appendChild(document.createTextNode(txt));
+                chatLogEl.appendChild(linha);
+                while (chatLogEl.children.length > 6) chatLogEl.firstChild.remove();
+                setTimeout(() => linha.remove(), 14000);
+                if (nome !== meuNome) {                       // o meu balão já apareceu ao enviar
+                    let b = balaos[nome];
+                    if (!b) {
+                        const el = document.createElement('div');
+                        el.className = 'pixel-balloon chat';
+                        el.style.display = 'none';
+                        document.getElementById('labels-container').appendChild(el);
+                        b = balaos[nome] = { el, ate: 0 };
+                    }
+                    b.el.innerText = txt;
+                    b.ate = performance.now() + 7000;
+                }
+            }
+
             // ---------- Som on/off ----------
             const btnSom = document.getElementById('btnSom');
             function atualizarBtnSom() { btnSom.innerText = store.get('mig_som', '1') === '0' ? '🔇' : '🔊'; }
@@ -2182,6 +2303,12 @@
 
             const MAPA_TECLAS_EMOTE = { KeyZ: 'wave', KeyX: 'kiss', KeyC: 'dance', KeyB: 'cheer' };
             window.addEventListener('keydown', e => {
+                if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+                    e.preventDefault();
+                    if (document.pointerLockElement) document.exitPointerLock();
+                    chatInput.focus();
+                    return;
+                }
                 if (e.code === 'Space' || e.code.startsWith('Arrow')) e.preventDefault();
                 if (e.code === 'KeyW' || e.code === 'ArrowUp') kb.up = 1;
                 if (e.code === 'KeyS' || e.code === 'ArrowDown') kb.down = 1;
@@ -2290,6 +2417,15 @@
                             delete remotos[k]; delete tagsNomes[k];
                         }
                     }
+
+                // ---------- chat ----------
+                if (ret.cseq !== undefined) {
+                    if (ultimoChat < 0) ultimoChat = (ret.chats && ret.chats.length) ? ret.chats[0].c - 1 : ret.cseq;
+                    else if (ret.cseq < ultimoChat) ultimoChat = ret.cseq;      // servidor reiniciou
+                }
+                if (ret.chats) ret.chats.forEach(c => {
+                    if (c.c > ultimoChat) { ultimoChat = c.c; receberChat(c.n, c.t); }
+                });
             }
 
             // ---------- WebSocket (principal) ----------
@@ -2318,16 +2454,20 @@
             function enviarWS() {
                 if (!wsOk || !ws || ws.readyState !== 1) return;
                 const lista = bufferEdicoes.splice(0, bufferEdicoes.length);
+                const chats = chatPend.splice(0, 3);
                 const msg = {
                     dados_jogador: {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats
                     }
                 };
                 if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
                 try { ws.send(JSON.stringify(msg)); }
-                catch (e) { if (lista.length) { bufferEdicoes.unshift(...lista); emVoo.pop(); } }
+                catch (e) {
+                    if (lista.length) { bufferEdicoes.unshift(...lista); emVoo.pop(); }
+                    if (chats.length) chatPend.unshift(...chats);
+                }
             }
             conectarWS();
             setInterval(enviarWS, 66);
@@ -2338,22 +2478,24 @@
                 if (performance.now() < proximaTentativa) return;
                 sincronizando = true;
                 const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
+                const chatsEnv = chatPend.splice(0, 3);
                 try {
                     const dados = {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv
                     };
                     const res = await fetch('/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq })
+                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat })
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const ret = await res.json();
                     aplicarRespostaServidor(ret);
                 } catch (e) {
                     if (enviados.length) bufferEdicoes.unshift(...enviados);
+                    if (chatsEnv.length) chatPend.unshift(...chatsEnv);
                     if (bufferEdicoes.length > 2000) bufferEdicoes.splice(0, bufferEdicoes.length - 2000);
                     falhas++;
                     proximaTentativa = performance.now() + Math.min(5000, 200 * Math.pow(2, falhas));
@@ -2628,6 +2770,11 @@
                 const cm = box(cs, cs, cs, [mCab, mCab, mCab, mCab, mRosto, mCab]);
                 cm.position.z = cs / 2;
                 cabeca.add(cm);
+                if (!porco) {                                                // lã no topo da cabeça
+                    const la = box(cs + 0.1, 0.2, cs * 0.7 + 0.08, mCorpo);
+                    la.position.set(0, cs / 2 + 0.04, cs * 0.42);
+                    cabeca.add(la);
+                }
                 if (porco) {
                     const foc = box(0.26, 0.18, 0.1, mobMat(0xe58a85, 0.08));
                     foc.position.set(0, -0.08, cs + 0.04);
@@ -2928,7 +3075,11 @@
                 // ---------- Câmera ----------
                 camPivotY += (posY - camPivotY) * (1 - Math.exp(-14 * dt));
                 if (modoCamera === 1) {
-                    camera.position.set(posX, posY + 1.6, posZ);
+                    // olhos na altura da cabeça do personagem (centro da cabeça em y = 2.24)
+                    let olhoY = posY + 2.24;
+                    const ebx = Math.floor(posX + 0.5), ebz = Math.floor(posZ + 0.5), eby = Math.floor(olhoY + 0.1);
+                    if (getBloco(ebx, eby, ebz)) olhoY = eby - 0.12;       // teto baixo: não entra no bloco
+                    camera.position.set(posX, olhoY, posZ);
                     camera.rotation.set(-camRotY, camRotX, 0);
                 } else {
                     const sgn = modoCamera === 2 ? -1 : 1;
@@ -2944,6 +3095,22 @@
                 camera.updateMatrixWorld();
                 ceu.position.copy(camera.position);
                 atualizarCicloDia();
+
+                // ---------- Balão de chat do jogador local ----------
+                if (meuBalaoAte) {
+                    const ag = performance.now();
+                    if (ag > meuBalaoAte) { meuBalaoAte = 0; meuBalao.style.display = 'none'; }
+                    else if (modoCamera === 1) meuBalao.style.display = 'none';
+                    else {
+                        _v.set(posX, posY + 2.75, posZ).project(camera);
+                        if (_v.z > 1 || Math.abs(_v.x) > 1.2 || Math.abs(_v.y) > 1.2) meuBalao.style.display = 'none';
+                        else {
+                            meuBalao.style.display = 'block';
+                            meuBalao.style.transform =
+                                `translate3d(${(_v.x * 0.5 + 0.5) * window.innerWidth}px, ${(_v.y * -0.5 + 0.5) * window.innerHeight}px, 0) translate(-50%, calc(-100% - ${balloonEl.style.display !== 'none' ? 56 : 8}px))`;
+                        }
+                    }
+                }
 
                 // ---------- Interação ----------
                 if (toque.id !== null && toque.modo === 'espera' && agora - toque.t0 > TEMPO_SEGURAR) {
@@ -3004,6 +3171,22 @@
                             tg.style.display = 'block';
                             tg.style.transform =
                                 `translate3d(${(_v.x * 0.5 + 0.5) * W}px, ${(_v.y * -0.5 + 0.5) * H}px, 0) translate(-50%, -100%)`;
+                        }
+                    }
+                }
+
+                // ---------- Balões de chat dos outros jogadores ----------
+                {
+                    const ag = performance.now();
+                    for (const k in balaos) {
+                        const b = balaos[k], r = remotos[k];
+                        if (ag > b.ate || !r) { b.el.remove(); delete balaos[k]; continue; }
+                        _v.set(r.mesh.position.x, r.mesh.position.y + 2.8, r.mesh.position.z).project(camera);
+                        if (_v.z > 1 || Math.abs(_v.x) > 1.2 || Math.abs(_v.y) > 1.2) b.el.style.display = 'none';
+                        else {
+                            b.el.style.display = 'block';
+                            b.el.style.transform =
+                                `translate3d(${(_v.x * 0.5 + 0.5) * W}px, ${(_v.y * -0.5 + 0.5) * H}px, 0) translate(-50%, calc(-100% - 26px))`;
                         }
                     }
                 }
