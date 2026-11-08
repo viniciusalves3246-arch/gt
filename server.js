@@ -24,6 +24,12 @@ const MAX_DROPS = 500;
 const ALCANCE_PEGAR_XZ = 6;    // distância horizontal máxima (tolerante à latência) para coletar
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
+// ---------- Plantações (trigo) ----------
+const ID_PLANTADO = 31;        // arado com semente; depois 32 (broto), 33 (crescendo) e 34 (trigo pronto)
+const ID_MADURO = 34;
+const TEMPO_ESTAGIO_MS = Number(process.env.TEMPO_ESTAGIO_MS) || 40 * 1000;   // tempo de cada estágio (~2 min no total)
+const cultivos = new Map();    // "x,y,z" -> hora (ms) em que passa para o próximo estágio
+
 // ---------- Estado ----------
 const jogadores = {};          // nome -> dados
 const donos = {};              // nome -> conexão WebSocket dona do nome
@@ -48,6 +54,7 @@ try {
     console.error('Falha ao ler mundo_blocos.json, iniciando vazio:', e.message);
     blocos = {};
 }
+for (const k in blocos) agendarCrescimento(k, blocos[k]);   // retoma as plantações salvas
 
 // Salva o mundo no disco de forma agrupada (no máx. 1x a cada 2s)
 let salvarAgendado = null;
@@ -63,8 +70,15 @@ function agendarSalvar() {
     }, 2000);
 }
 
+function agendarCrescimento(k, b) {
+    if (b >= ID_PLANTADO && b < ID_MADURO) cultivos.set(k, Date.now() + TEMPO_ESTAGIO_MS * (0.8 + Math.random() * 0.4));
+    else cultivos.delete(k);
+}
+
 function mudarBloco(x, y, z, b) {
-    blocos[`${x},${y},${z}`] = b;
+    const k = `${x},${y},${z}`;
+    blocos[k] = b;
+    agendarCrescimento(k, b);
     seq++;
     log.push({ s: seq, x, y, z, b });
     if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
@@ -406,6 +420,18 @@ setInterval(() => {
     for (const [id, d] of drops) if (agora - d.t > DROP_TTL_MS) { drops.delete(id); mudou = true; }
     if (mudou) dropsMudaram();
 }, 5000);
+
+// Plantações crescem sozinhas: a cada estágio o bloco do arado muda (todos os jogadores recebem o evento)
+setInterval(() => {
+    const agora = Date.now();
+    for (const [k, quando] of cultivos) {
+        if (agora < quando) continue;
+        const b = blocos[k];
+        if (!(b >= ID_PLANTADO && b < ID_MADURO)) { cultivos.delete(k); continue; }
+        const [x, y, z] = k.split(',').map(Number);
+        mudarBloco(x, y, z, b + 1);
+    }
+}, 1000);
 
 server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
