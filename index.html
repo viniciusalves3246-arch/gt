@@ -332,6 +332,14 @@
             cursor: pointer;
         }
         .slot.sel { border-color: #fff; background: rgba(255, 255, 255, 0.4); }
+        .slot, .invcell { position: relative; }
+        .slot .qtd, .invcell .qtd {
+            position: absolute; right: 2px; bottom: 0;
+            font-size: 8px; line-height: 1.1; color: #fff;
+            text-shadow: 1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+            pointer-events: none;
+        }
+        .slot.orig, .invcell.orig { border-color: #7dff9b; background: rgba(125, 255, 155, 0.3); }
         .slot img { width: calc(var(--slot) - 10px); height: calc(var(--slot) - 10px); image-rendering: pixelated; pointer-events: none; }
         .slot.alvo:empty { border-color: #ffd36b; border-style: dashed; background: rgba(255, 211, 107, 0.15); }
         .slot.mochila { font-size: calc(var(--slot) - 16px); margin-left: 4px; background: rgba(0, 0, 0, 0.35); }
@@ -385,7 +393,20 @@
             white-space: nowrap;
         }
 
+        #vitais {
+            position: absolute;
+            display: none;
+            justify-content: space-between;
+            z-index: 12;
+            pointer-events: none;
+        }
+        body.surv #vitais { display: flex; }
+        body.surv #nome-bloco { margin-bottom: 26px; }
+        .barra-v { display: flex; gap: 2px; }
+        .barra-v img { width: 22px; height: 20px; image-rendering: pixelated; }
+
         @media (max-width: 700px) {
+            .barra-v img { width: 18px; height: 16px; }
             :root { --slot: 32px; }
             #hud { font-size: 8px; }
             .sq, .emote-btn { width: 38px; height: 38px; }
@@ -473,6 +494,7 @@
         <div id="inv-grade"></div>
     </div>
     <div id="hotbar"></div>
+    <div id="vitais"><div id="vida-barra" class="barra-v"></div><div id="fome-barra" class="barra-v"></div></div>
 
     <div id="joystick-container" class="touch-only">
         <div id="joystick-knob"></div>
@@ -517,12 +539,25 @@
             tabua_escura: ['Tábuas Escuras', 1.0, 0x4a3320]
         };
         const NTIPOS = TIPOS.length;
+        const NPLANTAS = 5;   // tipos de planta; ids de edição de planta = NTIPOS + 1 + tipo
         const ehFolha = new Uint8Array(NTIPOS + 2);
         const ehTransp = new Uint8Array(NTIPOS + 2);
         const ehSolo = new Uint8Array(NTIPOS + 2); // aceita capim/plantas por cima
         [ID.folhas, ID.folhas_betula, ID.folhas_abeto, ID.folhas_negro, ID.folhas_secas].forEach(i => { ehFolha[i] = 1; ehTransp[i] = 1; });
         ehTransp[ID.vidro] = 1;
         [ID.grama, ID.podzol, ID.grama_morta, ID.lama].forEach(i => { ehSolo[i] = 1; });
+        const ehApoio = new Uint8Array(NTIPOS + 2); // blocos que sustentam plantas (grama, terra...)
+        [ID.grama, ID.terra, ID.podzol, ID.grama_morta, ID.lama].forEach(i => { ehApoio[i] = 1; });
+        const PLANTA_NOME = ['Capim', 'Capim Seco', 'Samambaia', 'Cogumelo', 'Arbusto Morto'];
+        const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630];
+        const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85];   // altura da caixa de seleção
+        const PILHA_MAX = 24;                                 // máximo de cada item por espaço (barra e inventário)
+        // blocos que soltam item no chão ao quebrar (modo sobrevivência): grama, madeira (troncos) e folhas
+        const DROPA_BLOCO = new Uint8Array(NTIPOS + 2);
+        [ID.grama, ID.log, ID.betula, ID.abeto, ID.carvalho_negro, ID.tronco_morto,
+         ID.folhas, ID.folhas_betula, ID.folhas_abeto, ID.folhas_negro, ID.folhas_secas].forEach(i => { DROPA_BLOCO[i] = 1; });
+        const itemDeBloco = (id) => (id > 0 && id <= NTIPOS && DROPA_BLOCO[id]) ? id - 1 : -1;
+        const itemDePlanta = (tp) => tp === 0 ? NTIPOS : tp === 3 ? NTIPOS + 1 : -1;   // capim e cogumelo
 
         const CAPS = {
             grama: 26000, terra: 26000, rocha: 16000,
@@ -1580,7 +1615,7 @@
                 if (y < 0 || y >= YMAX) return 0;
                 if (edits.size && chaveOk(x, y, z)) {
                     const e = edits.get(numKey(x, y, z));
-                    if (e !== undefined) return e;
+                    if (e !== undefined) return e > NTIPOS ? 0 : e;   // plantas não são blocos sólidos
                 }
                 return chunkDe(x, z).data[y * 256 + (z & 15) * 16 + (x & 15)];
             }
@@ -1631,7 +1666,30 @@
                 s.add(k);
                 refrescar(x, y, z);
                 remPlanta(k);
-                if (id === 0) remPlanta(numKey(x, y + 1, z));
+                if (id > NTIPOS) instalarPlanta(x, y, z, id);
+                else if (!ehApoio[id]) {
+                    // bloco de apoio removido/trocado: a planta em cima quebra junto
+                    const ka = numKey(x, y + 1, z);
+                    remPlanta(ka);
+                    if (edits.get(ka) > NTIPOS) edits.set(ka, 0);
+                }
+            }
+
+            // cria a planta visual (mesma aparência determinística do gerador de mundo)
+            function criarPlantaVisual(x, y, z, tp, alto) {
+                const r2 = h2(x, z, SEED + 8), r3 = h2(x, z, SEED + 9), r4 = h2(x, z, SEED + 10);
+                const esc = (tp === 3 ? 0.55 : 0.85) + r2 * 0.35;
+                const escY = alto ? esc * (1.45 + r4 * 0.4) : (tp === 3 ? esc : esc * (0.8 + r4 * 0.4));
+                return addPlanta(x, y, z, tp, (r3 - 0.5) * 0.5, r4 * Math.PI, (r2 - 0.5) * 0.5, esc, escY);
+            }
+            // planta colocada pelo jogador (edição com id > NTIPOS)
+            function instalarPlanta(x, y, z, id) {
+                const tp = id - NTIPOS - 1;
+                if (tp < 0 || tp >= NPLANTAS) return;
+                if (getId(x, y, z) !== 0 || !ehApoio[getId(x, y - 1, z)]) return;
+                const c = chunkRender(x, z);
+                if (!c) return;
+                c.plantas.push(criarPlantaVisual(x, y, z, tp, false));
             }
 
             // ----- Plantas por chunk -----
@@ -1665,11 +1723,7 @@
                         for (let i = 0; i < tab.length; i++) { acc += tab[i][1]; if (r < acc) { tp = tab[i][0]; break; } }
                         if (tp >= 0) {
                             const alto = tp === 10; if (alto) tp = 0;
-                            const r2 = h2(x, z, SEED + 8), r3 = h2(x, z, SEED + 9), r4 = h2(x, z, SEED + 10);
-                            const esc = (tp === 3 ? 0.55 : 0.85) + r2 * 0.35;
-                            const escY = alto ? esc * (1.45 + r4 * 0.4) : (tp === 3 ? esc : esc * (0.8 + r4 * 0.4));
-                            const k = addPlanta(x, h, z, tp, (r3 - 0.5) * 0.5, r4 * Math.PI, (r2 - 0.5) * 0.5, esc, escY);
-                            c.plantas.push(k);
+                            c.plantas.push(criarPlantaVisual(x, h, z, tp, alto));
                         }
                     }
                 }
@@ -1683,6 +1737,8 @@
                             if (chunkRender(ex, ez) !== c && Math.abs(ex - x0 - 8) > 9 && Math.abs(ez - z0 - 8) > 9) { /* longe */ }
                             refrescar(ex, ey, ez);
                             remPlanta(k);
+                            const ev = edits.get(k);
+                            if (ev > NTIPOS) instalarPlanta(ex, ey, ez, ev);   // replanta o que o jogador colocou
                         });
                     }
                 }
@@ -1803,6 +1859,64 @@
             meuChar.blob = criarBlob();
             scene.add(meuChar.mesh);
 
+            // ---------- Mão em 1ª pessoa (presa à câmera) ----------
+            scene.add(camera);   // a câmera precisa estar na cena para renderizar seus filhos
+            const maoPivo = new THREE.Group();
+            {
+                const matsBraco = meuChar.armR.children[0].material.map(m => {
+                    const c = m.clone();
+                    c.depthTest = false;      // desenha sempre por cima, sem atravessar blocos
+                    return c;
+                });
+                const braco = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.95, 0.24), matsBraco);
+                braco.position.y = -0.475;    // pivô no topo (ombro)
+                braco.renderOrder = 999;
+                maoPivo.add(braco);
+                maoPivo.renderOrder = 999;
+                maoPivo.visible = false;
+                camera.add(maoPivo);
+            }
+            const mao = { golpe: 0, fase: 0, q: 0, p: 0, tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+            function atualizarMao(dt) {
+                maoPivo.visible = modoCamera === 1;
+                if (!maoPivo.visible) { mao.fase = 0; return; }
+
+                // posição base (canto inferior direito; ajusta em telas estreitas)
+                const bx = Math.min(0.42, 0.637 * camera.aspect * 0.62);
+                const by = -0.5, bz = -0.5;
+                const base = 1.25;           // inclinação base: braço apontando para frente
+
+                // quebrar: soco repetido enquanto segura
+                let q = 0;
+                if (meuChar.quebrando) { mao.fase += dt * 11; q = Math.sin(mao.fase); }
+                else mao.fase = 0;
+                const qa = Math.max(0, q);   // 0..1 (golpe)
+                const qn = meuChar.quebrando ? 1 : 0;
+
+                // colocar: empurra para frente e para baixo uma vez
+                let pa = 0;
+                if (meuChar.golpe > 0) pa = Math.sin((1 - meuChar.golpe / 0.25) * Math.PI);
+
+                // balanço ao andar
+                const andar = Math.min(1, meuChar.walkT !== undefined ? 1 : 0);
+                const sway = Math.sin(meuChar.walkT) * 0.012 * Math.min(1, velAnim / 4) * andar;
+
+                const alvo = {
+                    tx: bx - 0.10 * qa - 0.05 * pa,
+                    ty: by + 0.12 * qa - 0.08 * pa + Math.abs(sway) * 1.5,
+                    tz: bz - 0.22 * qa - 0.20 * pa,
+                    rx: base + 0.55 * qn * (1 - qa) - 0.55 * qa * qn - 0.35 * pa + (qn ? 0.15 : 0),
+                    ry: 0.18 + 0.25 * qa + 0.20 * pa,
+                    rz: -0.05 - 0.10 * qa
+                };
+                const k = 1 - Math.exp(-28 * dt);
+                for (const p in alvo) mao[p] += (alvo[p] - mao[p]) * k;
+                if (mao.tx === 0 && mao.tz === 0) { mao.tx = bx; mao.ty = by; mao.tz = bz; mao.rx = base; }
+
+                maoPivo.position.set(mao.tx + sway, mao.ty, mao.tz);
+                maoPivo.rotation.set(mao.rx, mao.ry, mao.rz);
+            }
+
             // Chunks iniciais (síncrono) e ponto de nascimento
             for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
                 let c = chunks.get(ckKey(dx, dz));
@@ -1879,6 +1993,7 @@
                 chatInput.value = '';
                 chatInput.blur();
                 if (!t) return;
+                if (t[0] === '/') { comandoChat(t); return; }    // comandos ficam locais, não vão pro chat
                 chatPend.push(t);
                 meuBalao.innerText = t;
                 meuBalao.style.display = 'block';
@@ -1931,8 +2046,21 @@
             });
 
             // ---------- Barra de acesso (9 quadrados, começa vazia) + inventário ----------
+            // itens: blocos (0..NTIPOS-1) seguidos de plantas (NTIPOS..)
+            const ITENS = TIPOS.map(t => BLOCOS[t]).concat([0, 3].map(tp => ({
+                nome: PLANTA_NOME[tp], planta: tp, icone: TEX_PLANTAS[tp].image.toDataURL(), cor: PLANTA_COR[tp]
+            })));
+            const NITENS = ITENS.length;
             const NSLOTS = 9;
-            const barra = new Array(NSLOTS).fill(-1);   // índice em TIPOS, ou -1 = vazio
+            const barra = new Array(NSLOTS).fill(-1);   // índice em ITENS, ou -1 = vazio
+            // modo de jogo e inventário de sobrevivência
+            let modoJogo = 'sandbox';
+            const barraQtd = new Array(NSLOTS).fill(0); // quantidade em cada quadrado (só sobrevivência)
+            const NINV = 27;                            // espaços de armazenamento (3 x 9)
+            const invItem = new Array(NINV).fill(-1);
+            const invQtd = new Array(NINV).fill(0);
+            let invOrigem = null;                       // {t:'b'|'i', i} item escolhido para mover
+            let barraSand = new Array(NSLOTS).fill(-1); // barra do modo sandbox guardada durante a sobrevivência
             let slotSel = 0;                            // quadrado da barra em uso
             let invSel = -1;                            // bloco escolhido dentro do inventário
             const hotbarEl = document.getElementById('hotbar');
@@ -1945,19 +2073,30 @@
 
             function invAberto() { return invEl.classList.contains('aberto'); }
             function desenharBarra() {
+                const surv = modoJogo === 'sobrevivencia';
                 for (let k = 0; k < NSLOTS; k++) {
                     const t = barra[k], el = slotsEl[k];
-                    el.innerHTML = t >= 0 ? `<img src="${BLOCOS[TIPOS[t]].icone}">` : '';
+                    el.innerHTML = t >= 0
+                        ? `<img src="${ITENS[t].icone}">` + (surv && barraQtd[k] > 1 ? `<span class="qtd">${barraQtd[k]}</span>` : '')
+                        : '';
                     el.classList.toggle('sel', k === slotSel);
-                    el.classList.toggle('alvo', invSel >= 0);
+                    el.classList.toggle('alvo', !surv && invSel >= 0);
+                    el.classList.toggle('orig', surv && !!invOrigem && invOrigem.t === 'b' && invOrigem.i === k);
                 }
                 const ts = barra[slotSel];
-                nomeBlocoEl.innerText = ts >= 0 ? BLOCOS[TIPOS[ts]].nome : '';
+                nomeBlocoEl.innerText = ts >= 0 ? ITENS[ts].nome : '';
             }
             function atualizarInv() {
+                if (modoJogo === 'sobrevivencia') {
+                    desenharInvSurv();
+                    invDica.innerText = invOrigem
+                        ? 'Toque no destino: um espaço da barra ou do inventário'
+                        : 'Máx. ' + PILHA_MAX + ' por espaço · toque num item e depois no destino';
+                    return;
+                }
                 invCelulas.forEach((c, i) => c.classList.toggle('sel', i === invSel));
                 invDica.innerText = invSel >= 0
-                    ? BLOCOS[TIPOS[invSel]].nome + ' selecionado: toque num quadrado da barra'
+                    ? ITENS[invSel].nome + ' selecionado: toque num quadrado da barra'
                     : 'Toque num bloco e depois num quadrado da barra';
             }
             function selecionar(i) { slotSel = (i + NSLOTS) % NSLOTS; desenharBarra(); }
@@ -1968,7 +2107,7 @@
                 mochilaEl.classList.toggle('sel', ab);
                 document.body.classList.toggle('inv-open', ab);
                 if (ab) { if (document.pointerLockElement) document.exitPointerLock(); }
-                else invSel = -1;
+                else { invSel = -1; invOrigem = null; }
                 atualizarInv();
                 desenharBarra();
             }
@@ -1977,6 +2116,10 @@
                 const slot = document.createElement('div');
                 slot.className = 'slot';
                 slot.addEventListener('click', () => {
+                    if (modoJogo === 'sobrevivencia') {
+                        if (invAberto()) clicarSlotSurv('b', k); else { slotSel = k; desenharBarra(); }
+                        return;
+                    }
                     if (invSel >= 0) {                                   // coloca o bloco escolhido neste quadrado
                         barra[k] = invSel; slotSel = k; invSel = -1; atualizarInv();
                     } else if (invAberto() && slotSel === k && barra[k] >= 0) {
@@ -1984,7 +2127,7 @@
                     } else slotSel = k;
                     desenharBarra();
                 });
-                slot.addEventListener('contextmenu', e => { e.preventDefault(); barra[k] = -1; desenharBarra(); });
+                slot.addEventListener('contextmenu', e => { e.preventDefault(); if (modoJogo === 'sobrevivencia') return; barra[k] = -1; desenharBarra(); });
                 hotbarEl.appendChild(slot);
                 slotsEl.push(slot);
             }
@@ -1995,20 +2138,249 @@
             mochilaEl.addEventListener('click', () => alternarInv());
             hotbarEl.appendChild(mochilaEl);
 
-            TIPOS.forEach((t, i) => {
-                const c = document.createElement('div');
-                c.className = 'invcell';
-                c.title = BLOCOS[t].nome;
-                c.innerHTML = `<img src="${BLOCOS[t].icone}">`;
-                c.addEventListener('click', () => { invSel = invSel === i ? -1 : i; atualizarInv(); desenharBarra(); });
-                invGrade.appendChild(c);
-                invCelulas.push(c);
-            });
+            // ----- inventário de sobrevivência: espaços com quantidade (máx. PILHA_MAX por espaço) -----
+            const lerSlot = (t, i) => t === 'b' ? [barra[i], barraQtd[i]] : [invItem[i], invQtd[i]];
+            function setSlot(t, i, it, q) {
+                if (q <= 0 || it < 0) { it = -1; q = 0; }
+                if (t === 'b') { barra[i] = it; barraQtd[i] = q; } else { invItem[i] = it; invQtd[i] = q; }
+            }
+            // há lugar para mais 1 unidade deste item? (barra primeiro, depois inventário)
+            function espacoPara(item) {
+                for (let k = 0; k < NSLOTS; k++) if (barra[k] === item && barraQtd[k] < PILHA_MAX) return true;
+                for (let k = 0; k < NSLOTS; k++) if (barra[k] < 0) return true;
+                for (let k = 0; k < NINV; k++) if (invItem[k] === item && invQtd[k] < PILHA_MAX) return true;
+                for (let k = 0; k < NINV; k++) if (invItem[k] < 0) return true;
+                return false;
+            }
+            // 1) pilha na barra · 2) quadrado vazio da barra · 3) pilha no inventário · 4) espaço vazio do inventário
+            function adicionarItem(item) {
+                for (let k = 0; k < NSLOTS; k++) if (barra[k] === item && barraQtd[k] < PILHA_MAX) { barraQtd[k]++; return true; }
+                for (let k = 0; k < NSLOTS; k++) if (barra[k] < 0) { barra[k] = item; barraQtd[k] = 1; return true; }
+                for (let k = 0; k < NINV; k++) if (invItem[k] === item && invQtd[k] < PILHA_MAX) { invQtd[k]++; return true; }
+                for (let k = 0; k < NINV; k++) if (invItem[k] < 0) { invItem[k] = item; invQtd[k] = 1; return true; }
+                return false;
+            }
+            let salvarSurvT = null;
+            function agendarSalvarSurv() {
+                if (modoJogo !== 'sobrevivencia' || salvarSurvT) return;
+                salvarSurvT = setTimeout(() => {
+                    salvarSurvT = null;
+                    if (modoJogo !== 'sobrevivencia') return;
+                    store.set('mig_surv', JSON.stringify({
+                        b: barra.map((it, k) => [it, barraQtd[k]]), i: invItem.map((it, k) => [it, invQtd[k]])
+                    }));
+                }, 600);
+            }
+            function carregarSurv() {
+                try {
+                    const o = JSON.parse(store.get('mig_surv', ''));
+                    if (!o) return;
+                    const ok = (it) => Number.isInteger(it) && it >= 0 && it < NITENS;
+                    (o.b || []).forEach(([it, q], k) => { if (k < NSLOTS && ok(it)) { barra[k] = it; barraQtd[k] = clamp(q | 0, 1, PILHA_MAX); } });
+                    (o.i || []).forEach(([it, q], k) => { if (k < NINV && ok(it)) { invItem[k] = it; invQtd[k] = clamp(q | 0, 1, PILHA_MAX); } });
+                } catch (e) { }
+            }
+            function inventarioMudou() {
+                desenharBarra();
+                if (invAberto()) atualizarInv();
+                agendarSalvarSurv();
+            }
+            function desenharInvSurv() {
+                for (let i = 0; i < invCelulas.length; i++) {
+                    const c = invCelulas[i], it = invItem[i];
+                    c.innerHTML = it >= 0 ? `<img src="${ITENS[it].icone}">` + (invQtd[i] > 1 ? `<span class="qtd">${invQtd[i]}</span>` : '') : '';
+                    c.title = it >= 0 ? ITENS[it].nome : '';
+                    c.classList.remove('sel');
+                    c.classList.toggle('orig', !!invOrigem && invOrigem.t === 'i' && invOrigem.i === i);
+                }
+            }
+            function moverSlot(a, b) {
+                const [ia, qa] = lerSlot(a.t, a.i), [ib, qb] = lerSlot(b.t, b.i);
+                if (ib < 0) { setSlot(b.t, b.i, ia, qa); setSlot(a.t, a.i, -1, 0); }
+                else if (ia === ib) {
+                    const mv = Math.min(PILHA_MAX - qb, qa);
+                    setSlot(b.t, b.i, ib, qb + mv); setSlot(a.t, a.i, ia, qa - mv);
+                } else { setSlot(b.t, b.i, ia, qa); setSlot(a.t, a.i, ib, qb); }
+            }
+            function clicarSlotSurv(t, i) {
+                const [it] = lerSlot(t, i);
+                if (!invOrigem) {
+                    if (it >= 0) invOrigem = { t, i };
+                    if (t === 'b') slotSel = i;
+                } else if (invOrigem.t === t && invOrigem.i === i) {
+                    invOrigem = null;
+                } else {
+                    moverSlot(invOrigem, { t, i });
+                    invOrigem = null;
+                    if (t === 'b') slotSel = i;
+                }
+                inventarioMudou();
+            }
+            // monta a grade: paleta com todos os blocos (sandbox) ou 27 espaços de armazenamento (sobrevivência)
+            function construirGradeInv() {
+                invGrade.innerHTML = '';
+                invCelulas.length = 0;
+                if (modoJogo === 'sobrevivencia') {
+                    for (let i = 0; i < NINV; i++) {
+                        const c = document.createElement('div');
+                        c.className = 'invcell';
+                        c.addEventListener('click', () => clicarSlotSurv('i', i));
+                        invGrade.appendChild(c);
+                        invCelulas.push(c);
+                    }
+                } else {
+                    ITENS.forEach((it, i) => {
+                        const c = document.createElement('div');
+                        c.className = 'invcell';
+                        c.title = it.nome;
+                        c.innerHTML = `<img src="${it.icone}">`;
+                        c.addEventListener('click', () => { invSel = invSel === i ? -1 : i; atualizarInv(); desenharBarra(); });
+                        invGrade.appendChild(c);
+                        invCelulas.push(c);
+                    });
+                }
+                atualizarInv();
+            }
+            construirGradeInv();
             document.getElementById('invFechar').addEventListener('click', () => alternarInv(false));
             ['wheel', 'touchmove'].forEach(ev => invEl.addEventListener(ev, e => e.stopPropagation(), { passive: true }));
             atualizarInv();
             desenharBarra();
             window.addEventListener('wheel', (e) => selecionar(slotSel + (e.deltaY > 0 ? 1 : -1)), { passive: true });
+
+            // ============================================================
+            // MODOS DE JOGO: /sobrevivencia (vida + fome) · /sandbox (livre)
+            // ============================================================
+            const VIDA_MAX = 10, FOME_MAX = 10;          // 10 pontos = 5 ícones (meio ícone = 1 ponto)
+            const FOME_PARADO = 0.003, FOME_ANDAR = 0.02, FOME_PULO = 0.04;   // pontos por segundo / por pulo
+            let vida = VIDA_MAX, fome = FOME_MAX, regenT = 0, fomeT = 0;
+            const vitaisEl = document.getElementById('vitais');
+            const vidaBarra = document.getElementById('vida-barra');
+            const fomeBarra = document.getElementById('fome-barra');
+
+            function mkIcone(mascara, cor, estado, meio) {
+                const c = document.createElement('canvas');
+                const W = mascara[0].length, H = mascara.length;
+                c.width = W + 2; c.height = H + 2;
+                const g = c.getContext('2d');
+                const solido = (x, y) => x >= 0 && y >= 0 && x < W && y < H && mascara[y][x] !== '.';
+                for (let y = -1; y <= H; y++) for (let x = -1; x <= W; x++) {
+                    if (solido(x, y)) {
+                        const cheio = estado === 'c' || (estado === 'm' && meio(x));
+                        g.fillStyle = cor(mascara[y][x], x, y, cheio);
+                        g.fillRect(x + 1, y + 1, 1, 1);
+                    } else {
+                        let borda = false;
+                        for (let dy = -1; dy <= 1 && !borda; dy++) for (let dx = -1; dx <= 1; dx++) if (solido(x + dx, y + dy)) { borda = true; break; }
+                        if (borda) { g.fillStyle = '#000'; g.fillRect(x + 1, y + 1, 1, 1); }
+                    }
+                }
+                return c.toDataURL();
+            }
+            const MASC_CORACAO = ['.XXX.XXX.', 'XXXXXXXXX', 'XXXXXXXXX', 'XXXXXXXXX', '.XXXXXXX.', '..XXXXX..', '...XXX...', '....X....'];
+            const MASC_COMIDA = ['....MMMM.', '...MMMMMM', '...MMMMMM', '..MMMMMM.', '.MMMMMM..', '.BB......', 'BB.......', 'B........'];
+            const corCoracao = (ch, x, y, cheio) => !cheio ? '#3b2a2a' : ((x <= 2 && y === 1) ? '#ff8a8a' : '#e32d2d');
+            const corComida = (ch, x, y, cheio) => ch === 'B' ? (cheio ? '#f2ead6' : '#5a5448') : (!cheio ? '#3d3328' : ((x === 4 && y <= 2) ? '#e0a060' : '#c2702a'));
+            const ICO_VIDA = {
+                c: mkIcone(MASC_CORACAO, corCoracao, 'c'),
+                m: mkIcone(MASC_CORACAO, corCoracao, 'm', x => x <= 4),
+                v: mkIcone(MASC_CORACAO, corCoracao, 'v')
+            };
+            const ICO_FOME = {
+                c: mkIcone(MASC_COMIDA, corComida, 'c'),
+                m: mkIcone(MASC_COMIDA, corComida, 'm', x => x >= 4),
+                v: mkIcone(MASC_COMIDA, corComida, 'v')
+            };
+            const imgsVida = [], imgsFome = [];
+            for (let i = 0; i < 5; i++) {
+                const a = document.createElement('img'); vidaBarra.appendChild(a); imgsVida.push(a);
+                const b = document.createElement('img'); fomeBarra.appendChild(b); imgsFome.push(b);
+            }
+            let vidaMostrada = -1, fomeMostrada = -1;
+            function desenharVitais() {
+                const v = Math.max(0, Math.round(vida)), f = Math.max(0, Math.ceil(fome - 1e-6));
+                if (v !== vidaMostrada) {
+                    vidaMostrada = v;
+                    for (let i = 0; i < 5; i++) { const r = v - i * 2; imgsVida[i].src = r >= 2 ? ICO_VIDA.c : r === 1 ? ICO_VIDA.m : ICO_VIDA.v; }
+                }
+                if (f !== fomeMostrada) {
+                    fomeMostrada = f;
+                    for (let i = 0; i < 5; i++) { const r = f - i * 2; imgsFome[i].src = r >= 2 ? ICO_FOME.c : r === 1 ? ICO_FOME.m : ICO_FOME.v; }
+                }
+            }
+            // alinha as barras com a barra de itens (esquerda: vida · direita: fome)
+            function posVitais() {
+                const r = hotbarEl.getBoundingClientRect();
+                if (!r.width) return;
+                vitaisEl.style.left = r.left + 'px';
+                vitaisEl.style.width = r.width + 'px';
+                vitaisEl.style.bottom = (window.innerHeight - r.top + 4) + 'px';
+            }
+            window.addEventListener('resize', posVitais);
+            window.addEventListener('orientationchange', () => setTimeout(posVitais, 300));
+            setInterval(posVitais, 600);
+
+            function msgSistema(txt) {
+                const linha = document.createElement('div');
+                const n = document.createElement('b');
+                n.textContent = 'Jogo: ';
+                n.style.color = '#ff9b7d';
+                linha.appendChild(n);
+                linha.appendChild(document.createTextNode(txt));
+                chatLogEl.appendChild(linha);
+                while (chatLogEl.children.length > 6) chatLogEl.firstChild.remove();
+                setTimeout(() => linha.remove(), 14000);
+            }
+            function aplicarModo(m, avisar) {
+                const surv = m === 'sobrevivencia';
+                if (avisar && m === modoJogo) { msgSistema(surv ? 'Você já está no modo sobrevivência.' : 'Você já está no modo sandbox.'); return; }
+                const antes = modoJogo;
+                if (surv && antes !== 'sobrevivencia') {
+                    barraSand = barra.slice();                      // guarda a barra do sandbox
+                    barra.fill(-1); barraQtd.fill(0); invItem.fill(-1); invQtd.fill(0);   // sobrevivência começa do zero
+                    if (!avisar) carregarSurv();                    // jogo aberto já em sobrevivência: retoma o salvo
+                } else if (!surv && antes === 'sobrevivencia') {
+                    for (let k = 0; k < NSLOTS; k++) barra[k] = barraSand[k];
+                    barraQtd.fill(0);
+                    store.set('mig_surv', '');
+                }
+                modoJogo = m;
+                invOrigem = null; invSel = -1;
+                store.set('mig_modo', m);
+                document.body.classList.toggle('surv', surv);
+                vida = VIDA_MAX; fome = FOME_MAX; regenT = 0; fomeT = 0;
+                vidaMostrada = fomeMostrada = -1;
+                if (surv) { desenharVitais(); posVitais(); }
+                alternarInv(false);
+                construirGradeInv();
+                desenharBarra();
+                if (surv) agendarSalvarSurv();
+                if (avisar) msgSistema(surv ? 'Modo sobrevivência: inventário vazio. Quebre grama, madeira e folhas e pegue os itens do chão.' : 'Modo sandbox: sem vida, sem fome e todos os blocos.');
+            }
+            function comandoChat(txt) {
+                const c = txt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '');
+                if (['/sobrevivencia', '/sobreviencia', '/sobreviviencia', '/survival'].indexOf(c) >= 0) aplicarModo('sobrevivencia', true);
+                else if (['/sandbox', '/sanbox', '/normal', '/criativo', '/creative'].indexOf(c) >= 0) aplicarModo('sandbox', true);
+                else msgSistema('Comando desconhecido. Use /sobrevivencia ou /sandbox');
+            }
+            function gastarPulo() {
+                if (modoJogo === 'sobrevivencia') fome = Math.max(0, fome - FOME_PULO);
+            }
+            function atualizarVitais(dt) {
+                if (modoJogo !== 'sobrevivencia') return;
+                const corr = clamp(velAnim / VEL_MAX, 0, 1);
+                fome = Math.max(0, fome - dt * (FOME_PARADO + FOME_ANDAR * corr));
+                if (fome >= 8 && vida < VIDA_MAX) {                 // barriga cheia: recupera vida aos poucos
+                    regenT += dt;
+                    if (regenT >= 4) { regenT = 0; vida++; fome = Math.max(0, fome - 0.25); }
+                } else regenT = 0;
+                if (fome <= 0 && vida > 1) {                        // sem comida: perde vida, até meio coração
+                    fomeT += dt;
+                    if (fomeT >= 4) { fomeT = 0; vida--; }
+                } else fomeT = 0;
+                desenharVitais();
+            }
+            if (store.get('mig_modo', 'sandbox') === 'sobrevivencia') aplicarModo('sobrevivencia', false);
 
             // ---------- Colisão ----------
             function colide(x, y, z) {
@@ -2038,8 +2410,23 @@
             // MIRA: raio da câmera passando por qualquer ponto da tela
             // ============================================================
             const _o = new THREE.Vector3(), _d = new THREE.Vector3(), _v = new THREE.Vector3();
-            function novoAlvo() { return { x: 0, y: 0, z: 0, px: 0, py: 0, pz: 0, chao: false, id: 0 }; }
+            function novoAlvo() { return { x: 0, y: 0, z: 0, px: 0, py: 0, pz: 0, chao: false, id: 0, planta: -1 }; }
             const alvoVis = novoAlvo(), alvoQuebra = novoAlvo(), alvoPlace = novoAlvo();
+            // interseção raio × caixa (para selecionar plantas só quando o raio realmente as toca)
+            let _tn = 0, _tx = 0;
+            function slab(o, d, lo, hi) {
+                if (Math.abs(d) < 1e-9) return o >= lo && o <= hi;
+                let t1 = (lo - o) / d, t2 = (hi - o) / d;
+                if (t1 > t2) { const q = t1; t1 = t2; t2 = q; }
+                if (t1 > _tn) _tn = t1;
+                if (t2 < _tx) _tx = t2;
+                return _tn <= _tx;
+            }
+            function raioCaixa(ox, oy, oz, dx, dy, dz, x0, y0, z0, x1, y1, z1) {
+                _tn = 0; _tx = 1e9;
+                if (!slab(ox, dx, x0, x1) || !slab(oy, dy, y0, y1) || !slab(oz, dz, z0, z1)) return -1;
+                return _tn;
+            }
             function lancarRaio(nx, ny, out) {
                 _o.copy(camera.position);
                 _d.set(nx, ny, 0.5).unproject(camera).sub(_o).normalize();
@@ -2056,12 +2443,26 @@
                 let ax = bx, ay = by, az = bz, t = 0, primeiro = true;
                 while (t <= 16) {
                     const existe = by < 0 ? -1 : getBloco(bx, by, bz);
+                    if (!existe && by >= 0 && plantaTipo.size) {
+                        const tp = plantaTipo.get(numKey(bx, by, bz));
+                        if (tp !== undefined) {
+                            const hw = 0.3, hh = PLANTA_ALTURA[tp];
+                            if (raioCaixa(ox, oy, oz, dx, dy, dz, bx + 0.5 - hw, by, bz + 0.5 - hw, bx + 0.5 + hw, by + hh, bz + 0.5 + hw) >= 0) {
+                                const dist = Math.hypot(bx - posX, by + 0.5 - (posY + 1.0), bz - posZ);
+                                if (dist > ALCANCE) return null;
+                                out.x = bx; out.y = by; out.z = bz;
+                                out.px = primeiro ? bx : ax; out.py = primeiro ? by : ay; out.pz = primeiro ? bz : az;
+                                out.chao = false; out.id = 0; out.planta = tp;
+                                return out;
+                            }
+                        }
+                    }
                     if (existe) {
                         const dist = Math.hypot(bx - posX, by + 0.5 - (posY + 1.0), bz - posZ);
                         if (dist > ALCANCE) return null;
                         out.x = bx; out.y = by; out.z = bz;
                         out.px = primeiro ? bx : ax; out.py = primeiro ? by : ay; out.pz = primeiro ? bz : az;
-                        out.chao = by < 0; out.id = existe;
+                        out.chao = by < 0; out.id = existe; out.planta = -1;
                         return out;
                     }
                     ax = bx; ay = by; az = bz; primeiro = false;
@@ -2129,16 +2530,22 @@
                 if (!partMats[id]) partMats[id] = new THREE.MeshBasicMaterial({ color: BLOCOS[TIPOS[id - 1]].cor });
                 return partMats[id];
             }
-            function explodirBloco(x, y, z, id) {
-                const n = ehFolha[id] ? 8 : 14;
+            function matParticulaCor(hex) {
+                const k = 'c' + hex;
+                if (!partMats[k]) partMats[k] = new THREE.MeshBasicMaterial({ color: hex });
+                return partMats[k];
+            }
+            function explodirBloco(x, y, z, id, corPlanta) {
+                const matP = corPlanta !== undefined ? matParticulaCor(corPlanta) : matParticula(id);
+                const n = (corPlanta !== undefined || ehFolha[id]) ? 8 : 14;
                 for (let i = 0; i < n; i++) {
                     let p = partPool.pop();
                     if (!p) {
                         if (partAtivas.length > 120) break;
-                        p = { mesh: new THREE.Mesh(partGeo, matParticula(id)), vx: 0, vy: 0, vz: 0, vida: 0 };
+                        p = { mesh: new THREE.Mesh(partGeo, matP), vx: 0, vy: 0, vz: 0, vida: 0 };
                         scene.add(p.mesh);
                     }
-                    p.mesh.material = matParticula(id);
+                    p.mesh.material = matP;
                     const s = 0.6 + Math.random() * 0.9;
                     p.mesh.scale.set(s, s, s);
                     p.mesh.position.set(x + (Math.random() - 0.5) * 0.8, y + 0.5 + (Math.random() - 0.5) * 0.8, z + (Math.random() - 0.5) * 0.8);
@@ -2181,16 +2588,28 @@
                 const px = a.px, py = a.py, pz = a.pz;
                 if (py < 0 || py >= YMAX - 2) return;
                 if (getId(px, py, pz) !== 0) return;
-                if (Math.abs(px - posX) < 0.8 && Math.abs(pz - posZ) < 0.8 && posY + ALTURA_JOG > py && posY < py + 1) return;
                 const ti = barra[slotSel];
                 if (ti < 0) return;                          // quadrado vazio: nada a colocar
-                const id = ti + 1;
+                if (modoJogo === 'sobrevivencia' && barraQtd[slotSel] <= 0) return;
+                let id;
+                if (ti >= NTIPOS) {                          // planta: só em cima de grama/terra/etc., e uma por espaço
+                    if (plantaTipo.has(numKey(px, py, pz))) return;
+                    if (!ehApoio[getId(px, py - 1, pz)]) return;
+                    id = NTIPOS + 1 + ITENS[ti].planta;
+                } else {
+                    if (Math.abs(px - posX) < 0.8 && Math.abs(pz - posZ) < 0.8 && posY + ALTURA_JOG > py && posY < py + 1) return;
+                    id = ti + 1;
+                }
                 aplicarEdicao(px, py, pz, id);
                 pend.delete(numKey(px, py, pz));
                 bufferEdicoes.push([px, py, pz, id]);
                 ultimoPlace = agora;
+                if (modoJogo === 'sobrevivencia') {          // gasta 1 do item
+                    if (--barraQtd[slotSel] <= 0) { barra[slotSel] = -1; barraQtd[slotSel] = 0; }
+                    inventarioMudou();
+                }
                 meuChar.golpe = 0.25;
-                sfxColocar(id);
+                sfxColocar(id > NTIPOS ? ID.folhas : id);
                 virarPara(px, pz);
             }
             function aimPadrao(out) {
@@ -2203,11 +2622,20 @@
 
             function quebrarBloco(a) {
                 const id = a.id;
+                let drop = -1;
+                if (modoJogo === 'sobrevivencia') {
+                    drop = a.planta >= 0 ? itemDePlanta(a.planta) : itemDeBloco(id);
+                    if (a.planta < 0) {                       // planta em cima do bloco quebrado também cai
+                        const tpA = plantaTipo.get(numKey(a.x, a.y + 1, a.z));
+                        if (tpA !== undefined && itemDePlanta(tpA) >= 0) soltarItem(a.x, a.y + 1, a.z, itemDePlanta(tpA), 0.2);
+                    }
+                }
                 aplicarEdicao(a.x, a.y, a.z, 0);
+                if (drop >= 0) soltarItem(a.x, a.y, a.z, drop, 0.5);
                 pend.delete(numKey(a.x, a.y, a.z));
                 bufferEdicoes.push([a.x, a.y, a.z, 0]);
-                explodirBloco(a.x, a.y, a.z, id);
-                sfxQuebrar(id);
+                if (a.planta >= 0) { explodirBloco(a.x, a.y, a.z, 0, PLANTA_COR[a.planta]); sfxQuebrar(ID.folhas); }
+                else { explodirBloco(a.x, a.y, a.z, id); sfxQuebrar(id); }
             }
             function resetarQuebra() {
                 quebra.alvoKey = -1; quebra.prog = 0; quebra.tick = 0;
@@ -2222,19 +2650,19 @@
                 const k = numKey(a.x, a.y, a.z);
                 if (k !== quebra.alvoKey) { quebra.alvoKey = k; quebra.prog = 0; quebra.tick = 0; quebra.id = a.id; }
                 if (quebra.delay > 0) return;
-                const dur = Math.max(0.1, BLOCOS[TIPOS[a.id - 1]].dureza);
+                const dur = a.planta >= 0 ? 0.12 : Math.max(0.1, BLOCOS[TIPOS[a.id - 1]].dureza);
                 quebra.prog += dt / dur;
                 meuChar.quebrando = true;
                 if (!movendo) virarPara(a.x, a.z);
                 quebra.tick -= dt;
-                if (quebra.tick <= 0) { sfxTick(a.id); quebra.tick = 0.26; }
+                if (quebra.tick <= 0) { sfxTick(a.planta >= 0 ? ID.folhas : a.id); quebra.tick = 0.26; }
                 if (quebra.prog >= 1) {
                     quebrarBloco(a);
                     resetarQuebra();
                     quebra.delay = 0.16;
                     return;
                 }
-                crackMesh.visible = quebra.prog > 0.04;
+                crackMesh.visible = a.planta < 0 && quebra.prog > 0.04;
                 crackMat.map = crackTex[Math.min(9, Math.floor(quebra.prog * 10))];
                 crackMesh.position.set(a.x, a.y + 0.5, a.z);
             }
@@ -2477,6 +2905,7 @@
 
             function aplicarRespostaServidor(ret) {
                     falhas = 0;
+                    ultimaResposta = performance.now();
                     if (ret.tempo) offsetServidor = ret.tempo * 1000 - Date.now();
 
                     const qtd = ret.jogadores ? ret.jogadores.length : 1;
@@ -2486,10 +2915,10 @@
                         for (const k in ret.blocos) {
                             const [bx, by, bz] = k.split(',').map(Number);
                             const cod = ret.blocos[k];
-                            if (cod >= 0 && cod <= NTIPOS) enfileirar(bx, by, bz, cod);
+                            if (cod >= 0 && cod <= NTIPOS + NPLANTAS) enfileirar(bx, by, bz, cod);
                         }
                     } else if (ret.eventos) {
-                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= NTIPOS) enfileirar(ev.x, ev.y, ev.z, ev.b); });
+                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= NTIPOS + NPLANTAS) enfileirar(ev.x, ev.y, ev.z, ev.b); });
                     }
                     if (ret.seq !== undefined) ultimoSeq = ret.seq;
 
@@ -2534,6 +2963,10 @@
                         }
                     }
 
+                // ---------- itens no chão ----------
+                if (ret.drops) { sincronizarDrops(ret.drops); if (ret.dseq !== undefined) dropsDseq = ret.dseq; }
+                if (ret.ganhos) ret.ganhos.forEach(receberGanho);
+
                 // ---------- chat ----------
                 if (ret.cseq !== undefined) {
                     if (ultimoChat < 0) ultimoChat = (ret.chats && ret.chats.length) ? ret.chats[0].c - 1 : ret.cseq;
@@ -2571,11 +3004,12 @@
                 if (!wsOk || !ws || ws.readyState !== 1) return;
                 const lista = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chats = chatPend.splice(0, 3);
+                const dn = dropsNovosPend.splice(0, 8), pg = pegarPend.splice(0, 16);
                 const msg = {
                     dados_jogador: {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg
                     }
                 };
                 if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
@@ -2583,6 +3017,8 @@
                 catch (e) {
                     if (lista.length) { bufferEdicoes.unshift(...lista); emVoo.pop(); }
                     if (chats.length) chatPend.unshift(...chats);
+                    if (dn.length) dropsNovosPend.unshift(...dn);
+                    if (pg.length) pegarPend.unshift(...pg);
                 }
             }
             conectarWS();
@@ -2595,16 +3031,17 @@
                 sincronizando = true;
                 const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chatsEnv = chatPend.splice(0, 3);
+                const dnEnv = dropsNovosPend.splice(0, 8), pgEnv = pegarPend.splice(0, 16);
                 try {
                     const dados = {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv
                     };
                     const res = await fetch('/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat })
+                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat, desdeDrops: dropsDseq })
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const ret = await res.json();
@@ -2612,6 +3049,8 @@
                 } catch (e) {
                     if (enviados.length) bufferEdicoes.unshift(...enviados);
                     if (chatsEnv.length) chatPend.unshift(...chatsEnv);
+                    if (dnEnv.length) dropsNovosPend.unshift(...dnEnv);
+                    if (pgEnv.length) pegarPend.unshift(...pgEnv);
                     if (bufferEdicoes.length > 2000) bufferEdicoes.splice(0, bufferEdicoes.length - 2000);
                     falhas++;
                     proximaTentativa = performance.now() + Math.min(5000, 200 * Math.pow(2, falhas));
@@ -3085,6 +3524,93 @@
             for (let i = 0; i < 4; i++) tentarSpawn();   // população inicial
 
             // ============================================================
+            // ITENS NO CHÃO: flutuam, giram e voam até o jogador (sobrevivência)
+            // ============================================================
+            const dropsMap = new Map();          // id -> entidade (id > 0: do servidor · id < 0: local/offline)
+            const dropsNovosPend = [];           // [x,y,z,item] a enviar ao servidor
+            const pegarPend = [];                // ids que quero coletar
+            let dropsDseq = -1, ultimaResposta = 0, idLocal = 0;
+            const matDropPlanta = TEX_PLANTAS.map(tx => new THREE.MeshLambertMaterial({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide }));
+            const conectado = () => performance.now() - ultimaResposta < 3000;
+
+            function criarMeshDrop(item) {
+                const g = new THREE.Group();
+                let m;
+                if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, MAT[TIPOS[item]]); m.scale.setScalar(0.32); }
+                else { m = new THREE.Mesh(GEO_CRUZ, matDropPlanta[ITENS[item].planta]); m.scale.setScalar(0.5); m.position.y = -0.25; }
+                g.add(m);
+                scene.add(g);
+                return g;
+            }
+            function addDrop(id, x, y, z, item) {
+                if (dropsMap.has(id) || !(item >= 0 && item < NITENS)) return;
+                dropsMap.set(id, {
+                    id, x, y, z, item, mesh: criarMeshDrop(item), fase: Math.random() * 6.283, vy: 0,
+                    nasc: performance.now(), voando: false, pedido: false, tPedido: 0
+                });
+            }
+            function removerDrop(id) {
+                const e = dropsMap.get(id);
+                if (!e) return;
+                scene.remove(e.mesh);
+                dropsMap.delete(id);
+            }
+            // chamado ao quebrar: (x,y,z) = bloco; dy = altura do centro do item dentro da célula
+            function soltarItem(x, y, z, item, dy) {
+                const px = +(x + (Math.random() - 0.5) * 0.3).toFixed(2), py = +(y + (dy === undefined ? 0.5 : dy)).toFixed(2), pz = +(z + (Math.random() - 0.5) * 0.3).toFixed(2);
+                if (conectado()) dropsNovosPend.push([px, py, pz, item]);
+                else addDrop(--idLocal, px, py, pz, item);
+            }
+            function sincronizarDrops(lista) {
+                const ids = new Set();
+                for (const d of lista) {
+                    ids.add(d[0]);
+                    if (!dropsMap.has(d[0])) addDrop(d[0], d[1], d[2], d[3], d[4]);
+                }
+                for (const id of Array.from(dropsMap.keys())) if (id > 0 && !ids.has(id)) removerDrop(id);
+            }
+            function receberGanho(item) {
+                if (modoJogo === 'sobrevivencia' && adicionarItem(item)) { inventarioMudou(); tom(520, 900, 0.09, 0.1); }
+                else soltarItem(Math.round(posX), Math.floor(posY), Math.round(posZ), item, 0.8);   // sem espaço: volta pro chão
+            }
+            function atualizarDrops(dt, t) {
+                if (!dropsMap.size) return;
+                const surv = modoJogo === 'sobrevivencia';
+                const px = posX, py = posY + 0.9, pz = posZ, agoraMs = performance.now();
+                for (const [id, e] of dropsMap) {
+                    if (e.pedido) {                                        // aguardando o servidor confirmar
+                        e.mesh.visible = false;
+                        if (agoraMs - e.tPedido > 3000) { e.pedido = false; e.voando = false; }
+                        continue;
+                    }
+                    if (!e.voando) {
+                        const alvoY = chaoSob(e.x, e.y, e.z) + 0.3;        // cai até o chão
+                        if (e.y > alvoY + 0.01) { e.vy += 22 * dt; e.y = Math.max(alvoY, e.y - e.vy * dt); } else e.vy = 0;
+                        if (surv && agoraMs - e.nasc > 600 && Math.hypot(e.x - px, e.y - py, e.z - pz) < 2.1 && espacoPara(e.item)) e.voando = true;
+                    } else {
+                        const dx = px - e.x, dy = py - e.y, dz = pz - e.z, d = Math.hypot(dx, dy, dz);
+                        if (!surv) { e.voando = false; }
+                        else if (d < 0.5) {
+                            if (id < 0) {
+                                if (adicionarItem(e.item)) { inventarioMudou(); tom(520, 900, 0.09, 0.1); removerDrop(id); }
+                                else e.voando = false;
+                                continue;
+                            }
+                            e.pedido = true; e.tPedido = agoraMs; pegarPend.push(id);
+                            continue;
+                        } else {
+                            const v = Math.min(d, (5 + 9 / Math.max(0.5, d)) * dt);
+                            e.x += dx / d * v; e.y += dy / d * v; e.z += dz / d * v;
+                        }
+                    }
+                    const bob = e.voando ? 0 : 0.1 + Math.sin(t * 2.2 + e.fase) * 0.06;
+                    e.mesh.position.set(e.x, e.y + bob, e.z);
+                    e.mesh.rotation.y = t * 1.8 + e.fase;
+                    e.mesh.visible = Math.abs(e.x - px) < 60 && Math.abs(e.z - pz) < 60;
+                }
+            }
+
+            // ============================================================
             // LOOP PRINCIPAL
             // ============================================================
             const _dirCam = new THREE.Vector3();
@@ -3138,7 +3664,7 @@
 
                 if (kb.jump || jumpBtn) jumpBuf = 0.12; else jumpBuf -= dt;
                 if (noChao) coyote = 0.1; else coyote -= dt;
-                if (jumpBuf > 0 && coyote > 0) { velY = VEL_PULO; noChao = false; coyote = 0; jumpBuf = 0; }
+                if (jumpBuf > 0 && coyote > 0) { velY = VEL_PULO; noChao = false; coyote = 0; jumpBuf = 0; gastarPulo(); }
 
                 const ox0 = posX, oz0 = posZ;
                 const velMax = Math.max(Math.abs(velX), Math.abs(velZ), Math.abs(velY));
@@ -3164,6 +3690,7 @@
                 }
                 const velReal = Math.hypot(posX - ox0, posZ - oz0) / dt;
                 velAnim += (velReal - velAnim) * (1 - Math.exp(-15 * dt));
+                atualizarVitais(dt);
 
                 // ---------- Boneco ----------
                 if (movendo) alvoRot = yawMov;
@@ -3177,6 +3704,7 @@
                 aplicarAnimacao(meuChar, velAnim, !noChao, dt, emoteAtivo);
                 atualizarBlob(meuChar, posX, posY, posZ);
                 atualizarMobs(dt);
+                atualizarDrops(dt, tempoJogo);
 
                 if (balloonEl.style.display !== 'none') {
                     _v.set(posX, posY + 1.8, posZ).project(camera);
@@ -3208,6 +3736,7 @@
                     camera.position.set(px + _dirCam.x * camDist, py + _dirCam.y * camDist, pz + _dirCam.z * camDist);
                     camera.lookAt(posX, camPivotY + 1.0, posZ);
                 }
+                atualizarMao(dt);
                 camera.updateMatrixWorld();
                 ceu.position.copy(camera.position);
                 atualizarCicloDia();
@@ -3251,7 +3780,14 @@
                 const av = lancarRaio(vnx, vny, alvoVis);
                 if (av && !av.chao) {
                     seletorMesh.visible = true;
-                    seletorMesh.position.set(av.x, av.y + 0.5, av.z);
+                    if (av.planta >= 0) {
+                        const hh = PLANTA_ALTURA[av.planta];
+                        seletorMesh.scale.set(0.62, hh / 1.02, 0.62);
+                        seletorMesh.position.set(av.x, av.y + hh / 2, av.z);
+                    } else {
+                        seletorMesh.scale.set(1, 1, 1);
+                        seletorMesh.position.set(av.x, av.y + 0.5, av.z);
+                    }
                 } else seletorMesh.visible = false;
                 const mostrarGhost = !qOn && av && (!IS_TOUCH || (toque.id !== null && toque.modo === 'espera'));
                 if (mostrarGhost && getId(av.px, av.py, av.pz) === 0 && av.py >= 0) {
