@@ -916,6 +916,8 @@
         // ============================================================
         // Personagens
         // ============================================================
+        const ESCALA_PERSONAGEM = 1.8 / 2.56;          // modelo tinha 2,56 de altura; vira 1,8 como no Minecraft
+
         function criarPersonagem(cores) {
             const r = criarPRNG(17);
             const fem = cores.genero === 'f';
@@ -993,6 +995,8 @@
             const cabeca = caixa(0.64, 0.64, 0.64, matCabeca, 0, 2.24, 0);
             root.add(cabeca);
             if (fem) root.add(caixa(0.68, 1.1, 0.28, M(lisa(8, 8, cab)), 0, 2.0, -0.28));
+
+            root.scale.setScalar(ESCALA_PERSONAGEM);      // mesma altura do Minecraft (1,8 bloco)
 
             return {
                 mesh: root, armL: pArmL, armR: pArmR, legL: pLegL, legR: pLegR, head: cabeca, corpo,
@@ -1766,7 +1770,7 @@
             atualizarFila(0, 0);
 
             let posX = 0, posY = alturaAt(0, 0), posZ = 0, rotY = 0, alvoRot = 0;
-            const ALTURA_JOG = 2.56;   // altura de colisão = altura do modelo (cabeça incluída)
+            const ALTURA_JOG = 1.8;    // altura de colisão = altura do modelo (como no Minecraft: passa em vão de 2 blocos)
             while (colide(posX, posY, posZ) && posY < 60) posY += 1;   // nascimento: não começa preso
             let velX = 0, velZ = 0, velY = 0, noChao = true;
             let velAnim = 0, jumpBuf = 0, coyote = 0;
@@ -3065,20 +3069,20 @@
                 atualizarMobs(dt);
 
                 if (balloonEl.style.display !== 'none') {
-                    _v.set(posX, posY + 2.5, posZ).project(camera);
+                    _v.set(posX, posY + 1.8, posZ).project(camera);
                     balloonEl.style.transform =
                         `translate3d(${(_v.x * 0.5 + 0.5) * window.innerWidth}px, ${(_v.y * -0.5 + 0.5) * window.innerHeight}px, 0) translate(-50%, -240%)`;
                 }
 
                 // lanterna com leve tremor
-                lanterna.position.set(posX, posY + 2.2, posZ);
+                lanterna.position.set(posX, posY + 1.6, posZ);
                 lanterna.intensity = (1.25 + Math.sin(tempoJogo * 11) * 0.05 + Math.sin(tempoJogo * 23.7) * 0.04) * (1 - 0.9 * DIA_V);
 
                 // ---------- Câmera ----------
                 camPivotY += (posY - camPivotY) * (1 - Math.exp(-14 * dt));
                 if (modoCamera === 1) {
-                    // olhos na altura da cabeça do personagem (centro da cabeça em y = 2.24)
-                    let olhoY = posY + 2.24;
+                    // olhos na altura da cabeça do personagem (olhos do Minecraft: 1,62)
+                    let olhoY = posY + 1.62;
                     const ebx = Math.floor(posX + 0.5), ebz = Math.floor(posZ + 0.5), eby = Math.floor(olhoY + 0.1);
                     if (getBloco(ebx, eby, ebz)) olhoY = eby - 0.12;       // teto baixo: não entra no bloco
                     camera.position.set(posX, olhoY, posZ);
@@ -3087,12 +3091,12 @@
                     const sgn = modoCamera === 2 ? -1 : 1;
                     const cy = Math.cos(camRotY);
                     _dirCam.set(sgn * Math.sin(camRotX) * cy, Math.sin(camRotY), sgn * Math.cos(camRotX) * cy);
-                    const px = posX, py = camPivotY + 1.6, pz = posZ;
+                    const px = posX, py = camPivotY + 1.15, pz = posZ;
                     const alvoDist = distLivreCamera(px, py, pz, _dirCam.x, _dirCam.y, _dirCam.z, modoCamera === 2 ? 4.5 : 5.5);
                     if (alvoDist < camDist) camDist = alvoDist;
                     else camDist += (alvoDist - camDist) * (1 - Math.exp(-6 * dt));
                     camera.position.set(px + _dirCam.x * camDist, py + _dirCam.y * camDist, pz + _dirCam.z * camDist);
-                    camera.lookAt(posX, camPivotY + 1.4, posZ);
+                    camera.lookAt(posX, camPivotY + 1.0, posZ);
                 }
                 camera.updateMatrixWorld();
                 ceu.position.copy(camera.position);
@@ -3104,7 +3108,7 @@
                     if (ag > meuBalaoAte) { meuBalaoAte = 0; meuBalao.style.display = 'none'; }
                     else if (modoCamera === 1) meuBalao.style.display = 'none';
                     else {
-                        _v.set(posX, posY + 2.75, posZ).project(camera);
+                        _v.set(posX, posY + 2.0, posZ).project(camera);
                         if (_v.z > 1 || Math.abs(_v.x) > 1.2 || Math.abs(_v.y) > 1.2) meuBalao.style.display = 'none';
                         else {
                             meuBalao.style.display = 'block';
@@ -3167,7 +3171,7 @@
                     aplicarAnimacao(r, r.velAnim, (s.y - g) > 0.25, dt, r.emoteAtual);
                     const tg = tagsNomes[k];
                     if (tg) {
-                        _v.set(s.x, s.y + 2.8, s.z).project(camera);
+                        _v.set(s.x, s.y + 2.05, s.z).project(camera);
                         if (_v.z > 1 || Math.abs(_v.x) > 1.2 || Math.abs(_v.y) > 1.2) tg.style.display = 'none';
                         else {
                             tg.style.display = 'block';
@@ -3183,7 +3187,7 @@
                     for (const k in balaos) {
                         const b = balaos[k], r = remotos[k];
                         if (ag > b.ate || !r) { b.el.remove(); delete balaos[k]; continue; }
-                        _v.set(r.mesh.position.x, r.mesh.position.y + 2.8, r.mesh.position.z).project(camera);
+                        _v.set(r.mesh.position.x, r.mesh.position.y + 2.05, r.mesh.position.z).project(camera);
                         if (_v.z > 1 || Math.abs(_v.x) > 1.2 || Math.abs(_v.y) > 1.2) b.el.style.display = 'none';
                         else {
                             b.el.style.display = 'block';
