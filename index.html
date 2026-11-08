@@ -1707,6 +1707,11 @@
         // CAMA (2 blocos de comprimento) e PORTA — modelos 3D
         // ============================================================
         const PORTA_GEO = new THREE.BoxGeometry(1, 2, 0.16);
+        {   // face de dentro (+Z local): inverte a textura na horizontal para a maçaneta ficar do mesmo lado nas duas faces (junto da outra porta)
+            const uvPorta = PORTA_GEO.attributes.uv;
+            for (let i = 16; i < 20; i++) uvPorta.setX(i, 1 - uvPorta.getX(i));
+            uvPorta.needsUpdate = true;
+        }
         const PORTA_ITEM_GEO = new THREE.BoxGeometry(0.5, 1, 0.1);
         const _bedGeos = {};
         const bedGeo = (w, h, l) => _bedGeos[w + ',' + h + ',' + l] || (_bedGeos[w + ',' + h + ',' + l] = new THREE.BoxGeometry(w, h, l));
@@ -2344,6 +2349,37 @@
                     p.mesh.position.y += p.vy * dt;
                     p.mesh.position.z += p.vz * dt;
                     p.mesh.scale.setScalar(p.fumaca ? p.tam * (1 + (1 - u) * 2.6) : p.tam * (0.3 + 0.7 * u));
+                }
+            }
+
+            // ---------- Tocha na mão: a luz acompanha o jogador (o meu e os dos outros) ----------
+            // As luzes são criadas uma vez e ficam sempre na cena (intensidade 0 quando ninguém segura tocha):
+            // mudar a quantidade de luzes obrigaria o three.js a recompilar todos os materiais.
+            const luzMao = new THREE.PointLight(0xffa64d, 0, 14, 2);
+            scene.add(luzMao);
+            const luzesMaoRemotos = [];
+            for (let i = 0; i < (IS_TOUCH ? 1 : 2); i++) { const l = new THREE.PointLight(0xffa64d, 0, 14, 2); scene.add(l); luzesMaoRemotos.push(l); }
+            function ajustarLuzMao(luz, ativa, x, y, z, rot, fase, t, dt) {
+                const tr = 0.5 + 0.5 * Math.sin(t * 13 + fase) * Math.sin(t * 7.3 + fase * 2.1) + 0.25 * Math.sin(t * 31 + fase);
+                const alvo = ativa ? (1.45 + 0.5 * tr + Math.sin(t * 47 + fase) * 0.06) * (1 - 0.55 * DIA_V) : 0;
+                luz.intensity += (alvo - luz.intensity) * (1 - Math.exp(-14 * dt));    // acende/apaga suavemente
+                if (luz.intensity < 0.01 && !ativa) { luz.intensity = 0; return; }
+                luz.position.set(x + Math.sin(rot) * 0.45, y + 1.35, z + Math.cos(rot) * 0.45);   // na altura da mão, à frente do corpo
+            }
+            function atualizarLuzesMao(dt) {
+                const t = performance.now() / 1000;
+                ajustarLuzMao(luzMao, barra[slotSel] === ITEM_TOCHA && !dormindo, posX, posY, posZ, rotY, 0.7, t, dt);
+                // outros jogadores segurando tocha: as mais próximas de mim ganham luz
+                const segurando = [];
+                for (const k in remotos) {
+                    const r = remotos[k];
+                    if (r.itemMao === ITEM_TOCHA && !r.dorm) segurando.push(r);
+                }
+                segurando.sort((a, b) => Math.hypot(a.mesh.position.x - posX, a.mesh.position.z - posZ) - Math.hypot(b.mesh.position.x - posX, b.mesh.position.z - posZ));
+                for (let i = 0; i < luzesMaoRemotos.length; i++) {
+                    const r = segurando[i];
+                    if (r) ajustarLuzMao(luzesMaoRemotos[i], true, r.mesh.position.x, r.mesh.position.y, r.mesh.position.z, r.mesh.rotation.y, 2.1 + i * 1.7, t, dt);
+                    else ajustarLuzMao(luzesMaoRemotos[i], false, 0, 0, 0, 0, 0, t, dt);
                 }
             }
 
@@ -6408,6 +6444,7 @@
                 // ---------- Efeitos ----------
                 atualizarParticulas(dt);
                 atualizarTochas(dt, posX, posZ);
+                atualizarLuzesMao(dt);
                 atualizarPortas(dt);
                 atualizarAmbiente(dt, tempoJogo, forca);
 
