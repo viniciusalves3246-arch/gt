@@ -365,6 +365,16 @@
         #inventario.aberto { display: flex; }
         #inv-topo { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 10px; }
         #invFechar { width: 28px; height: 28px; font-size: 10px; }
+        #inv-titulo { flex: 1; text-align: center; }
+        #inv-abas { display: flex; gap: 4px; }
+        .aba { width: 30px; height: 30px; font-size: 14px; }
+        .aba.sel { background: rgba(125, 255, 155, 0.55); }
+        #banca { display: none; align-items: center; justify-content: center; gap: 12px; padding: 4px 0; }
+        #inventario.aba-banca #banca { display: flex; }
+        #banca-grade { display: grid; grid-template-columns: repeat(3, 46px); gap: 4px; }
+        #banca-grade .invcell { width: 46px; height: 46px; aspect-ratio: auto; }
+        #banca-res { width: 54px; height: 54px; aspect-ratio: auto; border-color: #ffd36b; background: rgba(255, 211, 107, 0.15); }
+        #banca-seta { color: #fff; font-size: 16px; }
         #inv-dica { color: #cfd8d3; font-size: 7px; line-height: 1.7; }
         #inv-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
         .invcell {
@@ -489,8 +499,20 @@
     <div id="mira">+</div>
     <div id="nome-bloco"></div>
     <div id="inventario">
-        <div id="inv-topo"><span>Inventário</span><button id="invFechar" class="btn-ui">✕</button></div>
+        <div id="inv-topo">
+            <div id="inv-abas">
+                <button id="abaItens" class="btn-ui aba sel" title="Itens">🎒</button>
+                <button id="abaBanca" class="btn-ui aba" title="Bancada de trabalho">🔨</button>
+            </div>
+            <span id="inv-titulo">Inventário</span>
+            <button id="invFechar" class="btn-ui">✕</button>
+        </div>
         <div id="inv-dica"></div>
+        <div id="banca">
+            <div id="banca-grade"></div>
+            <div id="banca-seta">➜</div>
+            <div id="banca-res" class="invcell"></div>
+        </div>
         <div id="inv-grade"></div>
     </div>
     <div id="hotbar"></div>
@@ -538,6 +560,11 @@
             lama: ['Lama', 0.5, 0x3b2c22], pedra_negra: ['Pedra Negra', 2.4, 0x2a2a30],
             tabua_escura: ['Tábuas Escuras', 1.0, 0x4a3320]
         };
+        INFO.arado = ['Terra Arada', 0.5, 0x4b3020];
+        INFO.arado_semente = ['Terra com Sementes', 0.5, 0x4b3020];
+        INFO.arado_s1 = ['Plantação', 0.5, 0x4b3020];
+        INFO.arado_s2 = ['Plantação', 0.5, 0x4b3020];
+        INFO.arado_s3 = ['Plantação', 0.5, 0x4b3020];
         const NTIPOS = TIPOS.length;
         const NPLANTAS = 5;   // tipos de planta; ids de edição de planta = NTIPOS + 1 + tipo
         const ehFolha = new Uint8Array(NTIPOS + 2);
@@ -548,9 +575,60 @@
         [ID.grama, ID.podzol, ID.grama_morta, ID.lama].forEach(i => { ehSolo[i] = 1; });
         const ehApoio = new Uint8Array(NTIPOS + 2); // blocos que sustentam plantas (grama, terra...)
         [ID.grama, ID.terra, ID.podzol, ID.grama_morta, ID.lama].forEach(i => { ehApoio[i] = 1; });
-        const PLANTA_NOME = ['Capim', 'Capim Seco', 'Samambaia', 'Cogumelo', 'Arbusto Morto'];
-        const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630];
-        const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85];   // altura da caixa de seleção
+        // tipos 5..7 = trigo em 3 estágios (broto, crescendo, maduro)
+        const PLANTA_NOME = ['Capim', 'Capim Seco', 'Samambaia', 'Cogumelo', 'Arbusto Morto', 'Trigo Novo', 'Trigo Crescendo', 'Trigo'];
+        const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630, 0x5a9a3a, 0x6aa040, 0xd4b040];
+        const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85, 0.35, 0.65, 0.95];   // altura da caixa de seleção
+        // blocos extras (terra arada e plantação): ids de edição logo depois das plantas
+        const EXTRAS = ['arado', 'arado_semente', 'arado_s1', 'arado_s2', 'arado_s3'];
+        const ID_ARADO = NTIPOS + NPLANTAS + 1;     // 30 terra arada
+        const ID_PLANTADO = ID_ARADO + 1;           // 31 arado com semente
+        const ID_MADURO = ID_ARADO + 4;             // 34 trigo pronto (32 broto · 33 crescendo · 34 maduro)
+        const NOME_ID = [''].concat(TIPOS);
+        for (let i = 0; i < NPLANTAS; i++) NOME_ID.push('');
+        EXTRAS.forEach(t => NOME_ID.push(t));
+        // itens que não são blocos (vêm depois das 2 plantas coletáveis)
+        const ITEM_SEMENTE = NTIPOS + 2, ITEM_TRIGO = NTIPOS + 3, ITEM_ENXADA = NTIPOS + 4, ITEM_GRAVETO = NTIPOS + 5;
+        const ITEM_TABUA = ID.tabua - 1, ITEM_TABUA_ESCURA = ID.tabua_escura - 1;
+        const ITENS_TRONCO = [ID.log, ID.betula, ID.abeto, ID.carvalho_negro, ID.tronco_morto].map(i => i - 1);
+        const CHANCE_SEMENTE = 0.7;   // chance de vir semente ao quebrar grama
+
+        // ---------- Receitas da bancada (grade 3x3; a forma pode ficar em qualquer posição da grade) ----------
+        // -1 = casa vazia · -2 = qualquer tronco · -3 = qualquer tábua
+        const RECEITAS = (() => {
+            const T = -3, G = ITEM_GRAVETO, V = -1;
+            return [
+                { saida: ITEM_TABUA, qtd: 4, forma: [[-2]] },                              // 1 tronco -> 4 tábuas
+                { saida: ITEM_GRAVETO, qtd: 1, forma: [[T], [T]] },                        // 2 tábuas na vertical -> graveto
+                { saida: ITEM_ENXADA, qtd: 1, forma: [[T, T], [V, G], [V, G]] },           // 2 tábuas em cima + 2 gravetos na vertical
+                { saida: ITEM_ENXADA, qtd: 1, forma: [[T, T], [G, V], [G, V]] },           // (espelhada)
+                { saida: ITEM_ENXADA, qtd: 1, forma: [[T, V, T], [V, G, V], [V, G, V]] }   // tábuas nos cantos de cima (casas 1 e 3)
+            ];
+        })();
+        function acharReceita(cel) {
+            let r0 = 9, r1 = -1, c0 = 9, c1 = -1;
+            for (let i = 0; i < 9; i++) if (cel[i] >= 0) {
+                const r = Math.floor(i / 3), c = i % 3;
+                if (r < r0) r0 = r; if (r > r1) r1 = r; if (c < c0) c0 = c; if (c > c1) c1 = c;
+            }
+            if (r1 < 0) return null;
+            const h = r1 - r0 + 1, w = c1 - c0 + 1;
+            for (const rc of RECEITAS) {
+                if (rc.forma.length !== h || rc.forma[0].length !== w) continue;
+                let ok = true;
+                for (let r = 0; r < h && ok; r++) for (let c = 0; c < w; c++) {
+                    const need = rc.forma[r][c], got = cel[(r0 + r) * 3 + c0 + c];
+                    const bate = need === -1 ? got < 0
+                        : need === -2 ? ITENS_TRONCO.indexOf(got) >= 0
+                        : need === -3 ? (got === ITEM_TABUA || got === ITEM_TABUA_ESCURA)
+                        : got === need;
+                    if (!bate) { ok = false; break; }
+                }
+                if (ok) return rc;
+            }
+            return null;
+        }
+        // ---------- fim das receitas ----------
         const PILHA_MAX = 24;                                 // máximo de cada item por espaço (barra e inventário)
         // blocos que soltam item no chão ao quebrar (modo sobrevivência): grama, madeira (troncos) e folhas
         const DROPA_BLOCO = new Uint8Array(NTIPOS + 2);
@@ -692,7 +770,7 @@
         // ============================================================
         // TEXTURAS E MATERIAIS
         // ============================================================
-        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ;
+        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ, TEX_ITENS;
 
         function cruzGeo(w, h) {
             const g = new THREE.BufferGeometry();
@@ -896,6 +974,21 @@
             const rocha = tex16(151, rochaPx);
             const negra = tex16(161, negraPx);
 
+            // ----- Terra arada -----
+            const aradoPx = (x, y, r) => {
+                const sulco = (y % 4) < 2;
+                let c = sulco ? 0x4b3020 : 0x60402a;
+                const q = r();
+                if (q < 0.07) c = 0x3a2418; else if (q < 0.12) c = 0x74503a;
+                return variaCor(c, 0.12, r);
+            };
+            const aradoTopo = tex16(171, aradoPx);
+            const aradoSementeTopo = tex16(172, (x, y, r) => {
+                const sulco = (y % 4) < 2;
+                if (sulco && h2(x, y, 173) < 0.3) return variaCor(h2(x, y, 174) < 0.5 ? 0xc9b26b : 0x93b04f, 0.12, r);
+                return aradoPx(x, y, r);
+            });
+
             const logLado = logLadoTex(201, 0x5b4329);
             const logTopo = logTopoTex(202, 0x5b4329, 0xb89058, 0xa57f4a);
             const abetoLado = logLadoTex(211, 0x45301f);
@@ -930,10 +1023,14 @@
                 lama: L(lama),
                 pedra_negra: L(negra),
                 tabua_escura: L(tabuaTex(451, 0x4a3320, 0x2a1c10)),
+                arado: [terra, terra, aradoTopo, terra, terra, terra].map(L),
+                arado_semente: [terra, terra, aradoSementeTopo, terra, terra, terra].map(L),
             };
 
+            MAT.arado_s1 = MAT.arado; MAT.arado_s2 = MAT.arado; MAT.arado_s3 = MAT.arado;   // plantação: o trigo é um sprite em cima
+
             BLOCOS = {};
-            TIPOS.forEach(t => {
+            TIPOS.concat(EXTRAS).forEach(t => {
                 const m = Array.isArray(MAT[t]) ? MAT[t][0] : MAT[t];
                 BLOCOS[t] = { nome: INFO[t][0], dureza: INFO[t][1], cor: INFO[t][2], icone: m.map.image.toDataURL() };
             });
@@ -989,6 +1086,45 @@
                     });
                 })
             ];
+            // trigo em 3 estágios (tipos 5, 6 e 7)
+            TEX_PLANTAS.push(
+                planta(506, lamina(0x2f6a22, 0x7fcf55, 7, 3, 3)),
+                planta(507, lamina(0x3a7a26, 0x9bd65e, 11, 7, 4)),
+                planta(508, (p, r) => {
+                    lamina(0x8a7a2a, 0xd9b83e, 12, 10, 5)(p, r);
+                    for (let i = 0; i < 14; i++) {
+                        const x = 1 + Math.floor(r() * 14), y = 1 + Math.floor(r() * 4);
+                        p(x, y, '#e8c64a'); p(x, y + 1, '#c9a132');
+                    }
+                })
+            );
+            // ícones/sprites dos itens novos
+            const px16 = (fn) => pixTex(16, 16, fn, false);
+            TEX_ITENS = {
+                semente: px16((p) => {
+                    [[3, 10], [8, 7], [11, 11], [5, 13], [10, 4], [6, 7], [2, 5], [12, 8]].forEach(([x, y]) => {
+                        p(x, y, '#9bb552'); p(x + 1, y, '#7a9a3a'); p(x, y + 1, '#6a8a30'); p(x + 1, y + 1, '#4f6e24');
+                    });
+                }),
+                trigo: px16((p) => {
+                    [[4, -1], [8, 0], [11, 1], [6, 0]].forEach(([x0, d]) => {
+                        for (let s = 0; s < 13; s++) {
+                            const x = x0 + Math.round(d * s / 5), y = 15 - s;
+                            p(x, y, s < 6 ? '#a6a04a' : '#c9ad3c');
+                            if (s >= 7 && s % 2 === 1) { p(x - 1, y, '#e2c350'); p(x + 1, y, '#f0d870'); }
+                        }
+                    });
+                    for (let x = 4; x <= 11; x++) p(x, 12, '#8a5a2a');
+                }),
+                graveto: px16((p) => {
+                    for (let i = 0; i < 10; i++) { p(3 + i, 13 - i, '#8a6a3c'); p(4 + i, 13 - i, '#5b4329'); }
+                }),
+                enxada: px16((p) => {
+                    for (let i = 0; i < 10; i++) { p(2 + i, 14 - i, '#7a5a30'); p(3 + i, 14 - i, '#4f3820'); }
+                    for (let x = 8; x <= 13; x++) { p(x, 3, '#c49a5e'); p(x, 4, '#8c6a3c'); }
+                    p(13, 5, '#8c6a3c'); p(13, 6, '#6b4f2c');
+                })
+            };
             GEO_CRUZ = cruzGeo(1, 1);
         }
 
@@ -1082,6 +1218,31 @@
                 genero: cores.genero, animTempo: 0, walkT: 0, emoteAtual: null, blob: null,
                 quebrando: false, golpe: 0
             };
+        }
+
+        // ---------- Enxada de madeira (modelo de caixas; substitui o braço) ----------
+        let ENX = null;
+        function modeloEnxada(semProfundidade) {
+            if (!ENX) {
+                ENX = {
+                    geoCabo: new THREE.BoxGeometry(0.1, 1.1, 0.1),
+                    geoBarra: new THREE.BoxGeometry(0.12, 0.1, 0.46),
+                    geoLamina: new THREE.BoxGeometry(0.12, 0.26, 0.1),
+                    matCabo: new THREE.MeshLambertMaterial({ color: 0x6b4a2a }),
+                    matMadeira: new THREE.MeshLambertMaterial({ color: 0xb48a52 })
+                };
+                ENX.matCaboFP = ENX.matCabo.clone(); ENX.matCaboFP.depthTest = false;
+                ENX.matMadeiraFP = ENX.matMadeira.clone(); ENX.matMadeiraFP.depthTest = false;
+            }
+            const mc = semProfundidade ? ENX.matCaboFP : ENX.matCabo;
+            const mm = semProfundidade ? ENX.matMadeiraFP : ENX.matMadeira;
+            const g = new THREE.Group();
+            const cabo = new THREE.Mesh(ENX.geoCabo, mc); cabo.position.set(0, -0.75, 0);
+            const bar = new THREE.Mesh(ENX.geoBarra, mm); bar.position.set(0, -1.28, 0.19);
+            const lam = new THREE.Mesh(ENX.geoLamina, mm); lam.position.set(0, -1.41, 0.37);
+            g.add(cabo, bar, lam);
+            if (semProfundidade) g.traverse(o => { if (o.isMesh) o.renderOrder = 1000; });
+            return g;
         }
 
         function descartarPersonagem(p) {
@@ -1366,6 +1527,12 @@
                 scene.add(c.mesh);
                 conj.push(c);
             });
+            for (let i = 0; i < NPLANTAS; i++) conj.push(null);          // ids das plantas não são blocos
+            EXTRAS.forEach(t => {
+                const c = new Conjunto(GEOS.bloco, MAT[t], 3000);
+                scene.add(c.mesh);
+                conj.push(c);
+            });
             const renderId = new Map();
             const matPlanta = TEX_PLANTAS.map(tx => {
                 const m = new THREE.MeshLambertMaterial({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide });
@@ -1618,7 +1785,7 @@
                 if (y < 0 || y >= YMAX) return 0;
                 if (edits.size && chaveOk(x, y, z)) {
                     const e = edits.get(numKey(x, y, z));
-                    if (e !== undefined) return e > NTIPOS ? 0 : e;   // plantas não são blocos sólidos
+                    if (e !== undefined) return (e > NTIPOS && e <= NTIPOS + NPLANTAS) ? 0 : e;   // plantas não são blocos sólidos
                 }
                 return chunkDe(x, z).data[y * 256 + (z & 15) * 16 + (x & 15)];
             }
@@ -1662,6 +1829,7 @@
             function aplicarEdicao(x, y, z, id) {
                 if (!chaveOk(x, y, z) || y >= YMAX) return;
                 const k = numKey(x, y, z);
+                const idAntes = getId(x, y, z);
                 edits.set(k, id);
                 const ck = ckKey(x >> 4, z >> 4);
                 let s = editsPorChunk.get(ck);
@@ -1669,12 +1837,36 @@
                 s.add(k);
                 refrescar(x, y, z);
                 remPlanta(k);
-                if (id > NTIPOS) instalarPlanta(x, y, z, id);
+                if (id > NTIPOS && id <= NTIPOS + NPLANTAS) instalarPlanta(x, y, z, id);
                 else if (!ehApoio[id]) {
                     // bloco de apoio removido/trocado: a planta em cima quebra junto
                     const ka = numKey(x, y + 1, z);
                     remPlanta(ka);
-                    if (edits.get(ka) > NTIPOS) edits.set(ka, 0);
+                    const ea = edits.get(ka);
+                    if (ea > NTIPOS && ea <= NTIPOS + NPLANTAS) edits.set(ka, 0);
+                }
+                // plantação: o trigo é desenhado em cima do arado
+                if (id >= ID_ARADO || idAntes >= ID_ARADO) atualizarCultura(x, y, z);
+                const abaixo = getId(x, y - 1, z);
+                if (abaixo > ID_PLANTADO && abaixo <= ID_MADURO) atualizarCultura(x, y - 1, z);
+            }
+
+            // sprite do trigo em cima do arado (ids 32..34 = broto, crescendo, maduro -> tipos de planta 5..7)
+            function criarCultura(x, y, z, tp) {
+                const r2 = h2(x, z, SEED + 21), r3 = h2(x, z, SEED + 22);
+                return addPlanta(x, y, z, tp, (r2 - 0.5) * 0.12, r3 * Math.PI, (r3 - 0.5) * 0.12, 1.0, 1.0);
+            }
+            function atualizarCultura(x, y, z) {
+                if (y + 1 >= YMAX) return;
+                const ka = numKey(x, y + 1, z);
+                const atual = plantaTipo.get(ka);
+                const id = getId(x, y, z);
+                const tpD = (id > ID_PLANTADO && id <= ID_MADURO && getId(x, y + 1, z) === 0) ? 5 + (id - ID_PLANTADO - 1) : -1;
+                if (atual === tpD) return;
+                if (atual !== undefined) remPlanta(ka);
+                if (tpD >= 0) {
+                    const c = chunkRender(x, z);
+                    if (c) c.plantas.push(criarCultura(x, y + 1, z, tpD));
                 }
             }
 
@@ -1741,7 +1933,8 @@
                             refrescar(ex, ey, ez);
                             remPlanta(k);
                             const ev = edits.get(k);
-                            if (ev > NTIPOS) instalarPlanta(ex, ey, ez, ev);   // replanta o que o jogador colocou
+                            if (ev > NTIPOS && ev <= NTIPOS + NPLANTAS) instalarPlanta(ex, ey, ez, ev);   // replanta o que o jogador colocou
+                            else if (ev > ID_PLANTADO && ev <= ID_MADURO) atualizarCultura(ex, ey, ez);
                         });
                     }
                 }
@@ -1869,7 +2062,7 @@
             maoItemGrp.position.set(0, -0.93, -0.17);
             maoItemGrp.rotation.set(0.35, 0.7, 0);
             maoPivo.add(maoItemGrp);
-            let itemMaoAtual = -2;
+            let itemMaoAtual = -2, maoBraco = null, maoEnxada = null;
             const matsMaoCache = new Map();
             {
                 const matsBraco = meuChar.armR.children[0].material.map(m => {
@@ -1881,6 +2074,11 @@
                 braco.position.y = -0.475;    // pivô no topo (ombro)
                 braco.renderOrder = 999;
                 maoPivo.add(braco);
+                maoBraco = braco;
+                maoEnxada = modeloEnxada(true);            // a enxada substitui o braço quando está na mão
+                maoEnxada.scale.setScalar(0.8);
+                maoEnxada.visible = false;
+                maoPivo.add(maoEnxada);
                 maoPivo.renderOrder = 999;
                 maoPivo.visible = false;
                 camera.add(maoPivo);
@@ -2065,6 +2263,8 @@
             const ITENS = TIPOS.map(t => BLOCOS[t]).concat([0, 3].map(tp => ({
                 nome: PLANTA_NOME[tp], planta: tp, icone: TEX_PLANTAS[tp].image.toDataURL(), cor: PLANTA_COR[tp]
             })));
+            [['Semente de Trigo', 'semente'], ['Trigo', 'trigo'], ['Enxada', 'enxada'], ['Graveto', 'graveto']].forEach(([nome, k]) =>
+                ITENS.push({ nome, tex: TEX_ITENS[k], icone: TEX_ITENS[k].image.toDataURL(), cor: 0xc9b26b }));
             const NITENS = ITENS.length;
             const NSLOTS = 9;
             const barra = new Array(NSLOTS).fill(-1);   // índice em ITENS, ou -1 = vazio
@@ -2074,6 +2274,12 @@
             const NINV = 27;                            // espaços de armazenamento (3 x 9)
             const invItem = new Array(NINV).fill(-1);
             const invQtd = new Array(NINV).fill(0);
+            // bancada de trabalho (3x3)
+            const craftItem = new Array(9).fill(-1), craftQtd = new Array(9).fill(0);
+            let abaInv = 'itens';
+            const bancaGrade = document.getElementById('banca-grade');
+            const bancaRes = document.getElementById('banca-res');
+            const bancaCelulas = [];
             let invOrigem = null;                       // {t:'b'|'i', i} item escolhido para mover
             let barraSand = new Array(NSLOTS).fill(-1); // barra do modo sandbox guardada durante a sobrevivência
             let slotSel = 0;                            // quadrado da barra em uso
@@ -2102,6 +2308,13 @@
                 nomeBlocoEl.innerText = ts >= 0 ? ITENS[ts].nome : '';
             }
             function atualizarInv() {
+                atualizarInvBase();
+                desenharBanca();
+                if (abaInv === 'banca') invDica.innerText = modoJogo === 'sobrevivencia'
+                    ? (invOrigem ? 'Toque nas casas da bancada (1 por toque)' : 'Toque num item e depois nas casas da bancada')
+                    : (invSel >= 0 ? ITENS[invSel].nome + ': toque numa casa da bancada' : 'Toque num item e depois numa casa da bancada');
+            }
+            function atualizarInvBase() {
                 if (modoJogo === 'sobrevivencia') {
                     desenharInvSurv();
                     invDica.innerText = invOrigem
@@ -2122,7 +2335,7 @@
                 mochilaEl.classList.toggle('sel', ab);
                 document.body.classList.toggle('inv-open', ab);
                 if (ab) { if (document.pointerLockElement) document.exitPointerLock(); }
-                else { invSel = -1; invOrigem = null; }
+                else { devolverBancada(); invSel = -1; invOrigem = null; }
                 atualizarInv();
                 desenharBarra();
             }
@@ -2154,10 +2367,12 @@
             hotbarEl.appendChild(mochilaEl);
 
             // ----- inventário de sobrevivência: espaços com quantidade (máx. PILHA_MAX por espaço) -----
-            const lerSlot = (t, i) => t === 'b' ? [barra[i], barraQtd[i]] : [invItem[i], invQtd[i]];
+            const lerSlot = (t, i) => t === 'b' ? [barra[i], barraQtd[i]] : t === 'c' ? [craftItem[i], craftQtd[i]] : [invItem[i], invQtd[i]];
             function setSlot(t, i, it, q) {
                 if (q <= 0 || it < 0) { it = -1; q = 0; }
-                if (t === 'b') { barra[i] = it; barraQtd[i] = q; } else { invItem[i] = it; invQtd[i] = q; }
+                if (t === 'b') { barra[i] = it; barraQtd[i] = q; }
+                else if (t === 'c') { craftItem[i] = it; craftQtd[i] = q; }
+                else { invItem[i] = it; invQtd[i] = q; }
             }
             // há lugar para mais 1 unidade deste item? (barra primeiro, depois inventário)
             function espacoPara(item) {
@@ -2195,6 +2410,13 @@
                     (o.i || []).forEach(([it, q], k) => { if (k < NINV && ok(it)) { invItem[k] = it; invQtd[k] = clamp(q | 0, 1, PILHA_MAX); } });
                 } catch (e) { }
             }
+            window.addEventListener('pagehide', () => {            // fechou a página com itens na bancada: tudo volta pro inventário
+                if (modoJogo !== 'sobrevivencia') return;
+                devolverBancada();
+                store.set('mig_surv', JSON.stringify({
+                    b: barra.map((it, k) => [it, barraQtd[k]]), i: invItem.map((it, k) => [it, invQtd[k]])
+                }));
+            });
             function inventarioMudou() {
                 desenharBarra();
                 if (invAberto()) atualizarInv();
@@ -2222,6 +2444,13 @@
                 if (!invOrigem) {
                     if (it >= 0) invOrigem = { t, i };
                     if (t === 'b') slotSel = i;
+                } else if (t === 'c' && invOrigem.t !== 'c') {       // bancada: coloca 1 unidade por toque
+                    const [io, qo] = lerSlot(invOrigem.t, invOrigem.i), [ic, qc] = lerSlot('c', i);
+                    if (io >= 0 && (ic < 0 || (ic === io && qc < PILHA_MAX))) {
+                        setSlot('c', i, io, qc + 1);
+                        setSlot(invOrigem.t, invOrigem.i, io, qo - 1);
+                        if (qo - 1 <= 0) invOrigem = null;
+                    }
                 } else if (invOrigem.t === t && invOrigem.i === i) {
                     invOrigem = null;
                 } else {
@@ -2258,6 +2487,71 @@
             }
             construirGradeInv();
             document.getElementById('invFechar').addEventListener('click', () => alternarInv(false));
+
+            // ----- bancada de trabalho -----
+            for (let i = 0; i < 9; i++) {
+                const c = document.createElement('div');
+                c.className = 'invcell';
+                c.addEventListener('click', () => clicarBanca(i));
+                bancaGrade.appendChild(c);
+                bancaCelulas.push(c);
+            }
+            bancaRes.addEventListener('click', craftar);
+            document.getElementById('abaItens').addEventListener('click', () => definirAba('itens'));
+            document.getElementById('abaBanca').addEventListener('click', () => definirAba('banca'));
+            function definirAba(a) {
+                abaInv = a;
+                invEl.classList.toggle('aba-banca', a === 'banca');
+                document.getElementById('abaItens').classList.toggle('sel', a === 'itens');
+                document.getElementById('abaBanca').classList.toggle('sel', a === 'banca');
+                document.getElementById('inv-titulo').innerText = a === 'banca' ? 'Bancada' : 'Inventário';
+                atualizarInv();
+            }
+            function desenharBanca() {
+                const surv = modoJogo === 'sobrevivencia';
+                bancaCelulas.forEach((c, i) => {
+                    const it = craftItem[i];
+                    c.innerHTML = it >= 0 ? `<img src="${ITENS[it].icone}">` + (surv && craftQtd[i] > 1 ? `<span class="qtd">${craftQtd[i]}</span>` : '') : '';
+                    c.title = it >= 0 ? ITENS[it].nome : '';
+                    c.classList.toggle('orig', surv && !!invOrigem && invOrigem.t === 'c' && invOrigem.i === i);
+                });
+                const rc = acharReceita(craftItem);
+                bancaRes.innerHTML = rc ? `<img src="${ITENS[rc.saida].icone}">` + (rc.qtd > 1 ? `<span class="qtd">${rc.qtd}</span>` : '') : '';
+                bancaRes.title = rc ? ITENS[rc.saida].nome : '';
+            }
+            function clicarBanca(i) {
+                if (modoJogo === 'sobrevivencia') { clicarSlotSurv('c', i); return; }
+                if (invSel >= 0) { craftItem[i] = invSel; craftQtd[i] = 1; }      // sandbox: itens à vontade
+                else { craftItem[i] = -1; craftQtd[i] = 0; }
+                atualizarInv();
+            }
+            function craftar() {
+                const rc = acharReceita(craftItem);
+                if (!rc) return;
+                if (modoJogo === 'sobrevivencia') {
+                    for (let i = 0; i < 9; i++) if (craftItem[i] >= 0) setSlot('c', i, craftItem[i], craftQtd[i] - 1);
+                    for (let q = 0; q < rc.qtd; q++) {
+                        if (!adicionarItem(rc.saida)) soltarItem(Math.round(posX), Math.floor(posY), Math.round(posZ), rc.saida, 0.8);
+                    }
+                    inventarioMudou();
+                } else {
+                    const livre = barra.indexOf(-1);
+                    barra[livre >= 0 ? livre : slotSel] = rc.saida;
+                    craftItem.fill(-1); craftQtd.fill(0);
+                    desenharBarra(); atualizarInv();
+                }
+                tom(520, 880, 0.12, 0.12);
+            }
+            function devolverBancada() {
+                const surv = modoJogo === 'sobrevivencia';
+                for (let i = 0; i < 9; i++) {
+                    if (surv) for (let q = 0; q < craftQtd[i]; q++) {
+                        if (!adicionarItem(craftItem[i])) soltarItem(Math.round(posX), Math.floor(posY), Math.round(posZ), craftItem[i], 0.8);
+                    }
+                    craftItem[i] = -1; craftQtd[i] = 0;
+                }
+                if (surv) { desenharBarra(); agendarSalvarSurv(); }
+            }
             ['wheel', 'touchmove'].forEach(ev => invEl.addEventListener(ev, e => e.stopPropagation(), { passive: true }));
             atualizarInv();
             desenharBarra();
@@ -2350,6 +2644,7 @@
                 const surv = m === 'sobrevivencia';
                 if (avisar && m === modoJogo) { msgSistema(surv ? 'Você já está no modo sobrevivência.' : 'Você já está no modo sandbox.'); return; }
                 const antes = modoJogo;
+                craftItem.fill(-1); craftQtd.fill(0);               // a bancada começa vazia em cada modo
                 if (surv && antes !== 'sobrevivencia') {
                     barraSand = barra.slice();                      // guarda a barra do sandbox
                     barra.fill(-1); barraQtd.fill(0); invItem.fill(-1); invQtd.fill(0);   // sobrevivência começa do zero
@@ -2542,7 +2837,7 @@
             const partMats = {};
             const partPool = [], partAtivas = [];
             function matParticula(id) {
-                if (!partMats[id]) partMats[id] = new THREE.MeshBasicMaterial({ color: BLOCOS[TIPOS[id - 1]].cor });
+                if (!partMats[id]) partMats[id] = new THREE.MeshBasicMaterial({ color: BLOCOS[NOME_ID[id]].cor });
                 return partMats[id];
             }
             function matParticulaCor(hex) {
@@ -2595,14 +2890,70 @@
 
             function virarPara(x, z) { alvoRot = Math.atan2(x - posX, z - posZ); }
 
+            function gastarDaMao() {
+                if (modoJogo !== 'sobrevivencia') return;
+                if (--barraQtd[slotSel] <= 0) { barra[slotSel] = -1; barraQtd[slotSel] = 0; }
+                inventarioMudou();
+            }
+            // enxada: um toque na grama (ou terra) vira terra arada
+            function usarEnxada(a) {
+                if (a.planta >= 5) return false;
+                const bx = a.x, bz = a.z;
+                let by = a.y;
+                if (a.planta >= 0) by -= 1;                       // mirou no capim: usa o bloco de baixo
+                if (by < 0) return false;
+                const id = getId(bx, by, bz);
+                if (id !== ID.grama && id !== ID.terra && id !== ID.podzol && id !== ID.grama_morta) return false;
+                if (getId(bx, by + 1, bz) !== 0) return false;
+                aplicarEdicao(bx, by, bz, ID_ARADO);
+                pend.delete(numKey(bx, by, bz));
+                bufferEdicoes.push([bx, by, bz, ID_ARADO]);
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.terra);
+                virarPara(bx, bz);
+                return true;
+            }
+            // semente: um toque no arado planta (arado vira "arado com semente"; o servidor faz crescer)
+            function plantarSemente(a) {
+                if (a.planta >= 0 || a.chao || a.id !== ID_ARADO) return false;
+                if (getId(a.x, a.y + 1, a.z) !== 0 || plantaTipo.has(numKey(a.x, a.y + 1, a.z))) return false;
+                aplicarEdicao(a.x, a.y, a.z, ID_PLANTADO);
+                pend.delete(numKey(a.x, a.y, a.z));
+                bufferEdicoes.push([a.x, a.y, a.z, ID_PLANTADO]);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.terra);
+                virarPara(a.x, a.z);
+                return true;
+            }
+            // colher: trigo maduro dá trigo; broto ainda verde devolve a semente. O arado volta a ficar vazio.
+            function colherCultura(a) {
+                const bx = a.x, by = a.y - 1, bz = a.z;
+                const maduro = getId(bx, by, bz) === ID_MADURO;
+                aplicarEdicao(bx, by, bz, ID_ARADO);
+                pend.delete(numKey(bx, by, bz));
+                bufferEdicoes.push([bx, by, bz, ID_ARADO]);
+                if (modoJogo === 'sobrevivencia') soltarItem(bx, by + 1, bz, maduro ? ITEM_TRIGO : ITEM_SEMENTE, 0.3);
+                explodirBloco(a.x, a.y, a.z, 0, PLANTA_COR[a.planta]);
+                sfxQuebrar(ID.folhas);
+            }
+
             function colocarEm(nx, ny) {
                 const agora = performance.now();
                 if (agora - ultimoPlace < 130) return;
                 const a = lancarRaio(nx, ny, alvoPlace);
                 if (!a) return;
+                const ti0 = barra[slotSel];
+                if (ti0 >= 0 && (modoJogo !== 'sobrevivencia' || barraQtd[slotSel] > 0)) {
+                    if (ti0 === ITEM_ENXADA) { if (usarEnxada(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_SEMENTE) { if (plantarSemente(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_TRIGO || ti0 === ITEM_GRAVETO) return;     // itens que não se colocam
+                }
                 const px = a.px, py = a.py, pz = a.pz;
                 if (py < 0 || py >= YMAX - 2) return;
                 if (getId(px, py, pz) !== 0) return;
+                const tpc = plantaTipo.get(numKey(px, py, pz));
+                if (tpc !== undefined && tpc >= 5) return;      // nada em cima da plantação
                 const ti = barra[slotSel];
                 if (ti < 0) return;                          // quadrado vazio: nada a colocar
                 if (modoJogo === 'sobrevivencia' && barraQtd[slotSel] <= 0) return;
@@ -2636,10 +2987,14 @@
             function colocarCentro() { aimPadrao(_aim); colocarEm(_aim[0], _aim[1]); }
 
             function quebrarBloco(a) {
+                if (a.planta >= 5) { colherCultura(a); return; }
                 const id = a.id;
                 let drop = -1;
                 if (modoJogo === 'sobrevivencia') {
                     drop = a.planta >= 0 ? itemDePlanta(a.planta) : itemDeBloco(id);
+                    if (a.planta < 0 && id > ID_ARADO) drop = id === ID_MADURO ? ITEM_TRIGO : ITEM_SEMENTE;   // arado plantado devolve o que tinha
+                    // grama (capim ou bloco de grama): 70% de chance de vir uma semente de trigo
+                    if ((a.planta === 0 || (a.planta < 0 && id === ID.grama)) && Math.random() < CHANCE_SEMENTE) soltarItem(a.x, a.y, a.z, ITEM_SEMENTE, 0.3);
                     if (a.planta < 0) {                       // planta em cima do bloco quebrado também cai
                         const tpA = plantaTipo.get(numKey(a.x, a.y + 1, a.z));
                         if (tpA !== undefined && itemDePlanta(tpA) >= 0) soltarItem(a.x, a.y + 1, a.z, itemDePlanta(tpA), 0.2);
@@ -2665,7 +3020,7 @@
                 const k = numKey(a.x, a.y, a.z);
                 if (k !== quebra.alvoKey) { quebra.alvoKey = k; quebra.prog = 0; quebra.tick = 0; quebra.id = a.id; }
                 if (quebra.delay > 0) return;
-                const dur = a.planta >= 0 ? 0.12 : Math.max(0.1, BLOCOS[TIPOS[a.id - 1]].dureza);
+                const dur = a.planta >= 0 ? 0.12 : Math.max(0.1, BLOCOS[NOME_ID[a.id]].dureza);
                 quebra.prog += dt / dur;
                 meuChar.quebrando = true;
                 if (!movendo) virarPara(a.x, a.z);
@@ -2930,10 +3285,10 @@
                         for (const k in ret.blocos) {
                             const [bx, by, bz] = k.split(',').map(Number);
                             const cod = ret.blocos[k];
-                            if (cod >= 0 && cod <= NTIPOS + NPLANTAS) enfileirar(bx, by, bz, cod);
+                            if (cod >= 0 && cod <= ID_MADURO) enfileirar(bx, by, bz, cod);
                         }
                     } else if (ret.eventos) {
-                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= NTIPOS + NPLANTAS) enfileirar(ev.x, ev.y, ev.z, ev.b); });
+                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= ID_MADURO) enfileirar(ev.x, ev.y, ev.z, ev.b); });
                     }
                     if (ret.seq !== undefined) ultimoSeq = ret.seq;
 
@@ -3547,14 +3902,15 @@
             const dropsNovosPend = [];           // [x,y,z,item] a enviar ao servidor
             const pegarPend = [];                // ids que quero coletar
             let dropsDseq = -1, ultimaResposta = 0, idLocal = 0;
-            const matDropPlanta = TEX_PLANTAS.map(tx => new THREE.MeshLambertMaterial({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide }));
+            const matItem = ITENS.map((it, i) => i < NTIPOS ? null : new THREE.MeshLambertMaterial({
+                map: it.planta !== undefined ? TEX_PLANTAS[it.planta] : it.tex, alphaTest: 0.4, side: THREE.DoubleSide }));
             const conectado = () => performance.now() - ultimaResposta < 3000;
 
             function criarMeshDrop(item) {
                 const g = new THREE.Group();
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, MAT[TIPOS[item]]); m.scale.setScalar(0.32); }
-                else { m = new THREE.Mesh(GEO_CRUZ, matDropPlanta[ITENS[item].planta]); m.scale.setScalar(0.5); m.position.y = -0.25; }
+                else { m = new THREE.Mesh(GEO_CRUZ, matItem[item]); m.scale.setScalar(0.5); m.position.y = -0.25; }
                 g.add(m);
                 scene.add(g);
                 return g;
@@ -3634,7 +3990,7 @@
             function matsParaMao(item) {                 // materiais da mão: sempre desenhados por cima
                 let r = matsMaoCache.get(item);
                 if (r) return r;
-                const base = item < NTIPOS ? MAT[TIPOS[item]] : matDropPlanta[ITENS[item].planta];
+                const base = item < NTIPOS ? MAT[TIPOS[item]] : matItem[item];
                 r = Array.isArray(base) ? base.map(clonarSemProfundidade) : clonarSemProfundidade(base);
                 matsMaoCache.set(item, r);
                 return r;
@@ -3643,7 +3999,7 @@
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, mats || MAT[TIPOS[item]]); m.scale.setScalar(esc); }
                 else {
-                    m = new THREE.Mesh(GEO_CRUZ, mats || matDropPlanta[ITENS[item].planta]);
+                    m = new THREE.Mesh(GEO_CRUZ, mats || matItem[item]);
                     m.scale.setScalar(esc * 1.55);
                     m.position.y = -esc * 0.78;
                 }
@@ -3653,6 +4009,10 @@
                 if (item === itemMaoAtual) return;
                 itemMaoAtual = item;
                 while (maoItemGrp.children.length) maoItemGrp.remove(maoItemGrp.children[0]);
+                const ehE = item === ITEM_ENXADA;
+                if (maoBraco) maoBraco.visible = !ehE;
+                if (maoEnxada) maoEnxada.visible = ehE;
+                if (ehE) return;
                 if (!(item >= 0 && item < NITENS)) return;
                 const m = criarMeshItem(item, 0.3, matsParaMao(item));
                 m.renderOrder = 1000;
@@ -3662,6 +4022,8 @@
                 if (p.itemAtual === item) return;
                 p.itemAtual = item;
                 if (p.itemMesh) { p.armR.remove(p.itemMesh); p.itemMesh = null; }
+                if (p.armR.children[0]) p.armR.children[0].visible = item !== ITEM_ENXADA;     // enxada substitui o braço
+                if (item === ITEM_ENXADA) { const g = modeloEnxada(false); p.armR.add(g); p.itemMesh = g; return; }
                 if (!(item >= 0 && item < NITENS)) return;
                 const g = new THREE.Group();
                 g.position.set(0, -0.92, 0.2);
@@ -3878,7 +4240,7 @@
                         seletorMesh.position.set(av.x, av.y + 0.5, av.z);
                     }
                 } else seletorMesh.visible = false;
-                const mostrarGhost = !qOn && av && (!IS_TOUCH || (toque.id !== null && toque.modo === 'espera'));
+                const mostrarGhost = !qOn && av && !(barra[slotSel] >= ITEM_SEMENTE) && (!IS_TOUCH || (toque.id !== null && toque.modo === 'espera'));
                 if (mostrarGhost && getId(av.px, av.py, av.pz) === 0 && av.py >= 0) {
                     ghostMesh.visible = true;
                     ghostMesh.position.set(av.px, av.py + 0.5, av.pz);
@@ -3934,7 +4296,7 @@
                 }
 
                 // envia só o trecho usado dos buffers de instância
-                for (let i = 1; i < conj.length; i++) conj[i].flush();
+                for (let i = 1; i < conj.length; i++) if (conj[i]) conj[i].flush();
                 for (let i = 0; i < pconj.length; i++) pconj[i].flush();
 
                 renderer.render(scene, camera);
