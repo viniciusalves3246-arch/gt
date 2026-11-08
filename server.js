@@ -30,6 +30,21 @@ const MAX_DROPS = 500;
 const ALCANCE_PEGAR_XZ = 6;    // distância horizontal máxima (tolerante à latência) para coletar
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
+// ---------- Mobs (ovelha, porco, zumbi) — o servidor guarda a lista e a vida; um jogador "dono" simula a IA ----------
+const MOB_NOMES = ['ovelha', 'porco', 'zumbi'];
+const MOB_HP = [4, 4, 20];
+const MOB_MAX = [30, 30, 24];       // limite global por espécie
+const MOB_RAIO_ATIVO = 80;          // mob sem nenhum jogador por perto some
+const MOB_RAIO_DONO = 64;           // dono se afastou demais: passa para o jogador mais próximo
+const MOB_RAIO_ENVIO = 110;         // só manda ao jogador os mobs perto dele
+const ITEM_CARNE = 33, ITEM_LA = 42;   // ids de item (NTIPOS=27 no cliente: carne = NTIPOS+6, lã = NTIPOS+15)
+const mobs = new Map();             // id -> { i, tp, x, y, z, r, e, sg, hp, dono }
+let mobIdSeq = 0;
+let mevSeq = 0;                     // eventos: dano/morte de mobs e morte de jogadores
+let mobEv = [];
+const taxaMob = {};                 // nome -> { t, n, d } (limites por segundo)
+const contMortes = {};              // nome -> contador de mortes enviado pelo cliente
+
 // ---------- Plantações (trigo) ----------
 const ID_PLANTADO = 34;        // arado com semente; depois 35 (broto), 36 (crescendo) e 37 (trigo pronto)
 const ID_MADURO = 37;          // (antes 31..34: ficou desatualizado quando entraram os minérios e a terra arada virava plantação sozinha)
@@ -104,6 +119,69 @@ function criarDrop(x, y, z, it) {
     dropsMudaram();
 }
 
+function mobEvento(e) {
+    e.s = ++mevSeq;
+    mobEv.push(e);
+    if (mobEv.length > 200) mobEv = mobEv.slice(-200);
+}
+function contarMobs(tp) { let n = 0; for (const m of mobs.values()) if (m.tp === tp) n++; return n; }
+function criarMobServidor(tp, x, y, z, dono) {
+    if (contarMobs(tp) >= MOB_MAX[tp]) return;
+    const id = ++mobIdSeq;
+    mobs.set(id, { i: id, tp, x, y, z, r: Math.random() * 6.283, e: 0, sg: tp === 2 ? 1.6 : 0, hp: MOB_HP[tp], dono });
+}
+function soltarLootMob(m, por) {
+    if (m.tp === 2) return;                                // zumbi não solta nada
+    const j = jogadores[por];
+    if (!j || !j.surv) return;                             // só no modo sobrevivência de quem matou
+    const qtd = 1 + (Math.random() < 0.5 ? 1 : 0);
+    for (let k = 0; k < qtd; k++) criarDrop(m.x + (Math.random() - 0.5) * 0.3, m.y + 0.5, m.z + (Math.random() - 0.5) * 0.3, ITEM_CARNE);
+    if (m.tp === 0) criarDrop(m.x + (Math.random() - 0.5) * 0.3, m.y + 0.5, m.z + (Math.random() - 0.5) * 0.3, ITEM_LA);
+}
+function danoMob(nome, id, dano, dx, dz, fogo) {
+    const m = mobs.get(id);
+    if (!m) return;
+    const eu = jogadores[nome];
+    if (!eu) return;
+    if (fogo) { if (m.dono !== nome || m.tp !== 2) return; dano = Math.min(dano, 1.5); }
+    else {
+        if (Math.hypot(m.x - eu.x, m.z - eu.z) > 12) return;   // longe demais (com folga para a latência)
+        dano = Math.min(dano, 3);
+    }
+    if (!(dano > 0)) return;
+    m.hp -= dano;
+    if (m.hp <= 0) {
+        mobs.delete(id);
+        mobEvento({ t: 'm', i: id, k: m.tp, x: +m.x.toFixed(2), y: +m.y.toFixed(2), z: +m.z.toFixed(2), por: nome });
+        if (!fogo) soltarLootMob(m, nome);
+    } else if (!fogo) {
+        mobEvento({ t: 'd', i: id, x: +dx || 0, z: +dz || 0, por: nome });
+    }
+}
+// a cada segundo: troca de dono, remove mobs abandonados ou caídos no vazio
+function manterMobs() {
+    if (!mobs.size) return;
+    const lista = Object.values(jogadores);
+    for (const [id, m] of mobs) {
+        if (m.y < -8) { mobs.delete(id); continue; }
+        const dono = jogadores[m.dono];
+        if (dono && Math.hypot(dono.x - m.x, dono.z - m.z) <= MOB_RAIO_DONO) continue;
+        let melhor = null, md = Infinity;
+        for (const j of lista) { const d = Math.hypot(j.x - m.x, j.z - m.z); if (d < md) { md = d; melhor = j; } }
+        if (!melhor || md > MOB_RAIO_ATIVO) mobs.delete(id);
+        else m.dono = melhor.nome;
+    }
+}
+function listaMobsPara(nome) {
+    const eu = jogadores[nome];
+    const out = [];
+    for (const m of mobs.values()) {
+        if (eu && Math.hypot(m.x - eu.x, m.z - eu.z) > MOB_RAIO_ENVIO) continue;
+        out.push([m.i, m.tp, +m.x.toFixed(2), +m.y.toFixed(2), +m.z.toFixed(2), +m.r.toFixed(2), m.e, m.hp, m.dono, m.sg]);
+    }
+    return out;
+}
+
 // ---------- Lógica compartilhada ----------
 function adicionarChat(nome, txt) {
     txt = String(txt ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
@@ -131,8 +209,20 @@ function aplicarJogador(d, agora) {
         item: (Number.isInteger(+d.item) && +d.item >= 0 && +d.item <= MAX_ITEM) ? +d.item : -1,   // item na mão
         emote: String(d.emote ?? '').replace(/[^a-z0-9_-]/gi, '').slice(0, 16),
         keys: d.keys && typeof d.keys === 'object' ? d.keys : {},
+        pit: Math.max(-1.6, Math.min(1.6, Number(d.pit) || 0)),            // inclinação da cabeça (olhar para cima/baixo)
+        gp: (Math.trunc(Number(d.gp)) || 0) % 1000000,                     // contador de golpes (anima o braço dos outros)
+        com: d.com ? 1 : 0,                                                // comendo
+        qb: d.qb ? 1 : 0,                                                  // quebrando bloco
+        surv: d.surv ? 1 : 0,                                              // modo sobrevivência (decide se recebe loot)
+        dorm: (Array.isArray(d.dorm) && d.dorm.length === 4 && d.dorm.every(v => Number.isFinite(+v))) ? d.dorm.map(v => +(+v).toFixed(2)) : null,
         ultimo_acesso: agora
     };
+    // morte do jogador: avisa todo mundo
+    {
+        const mc = Math.trunc(Number(d.mortes)) || 0;
+        if (contMortes[nome] !== undefined && mc > contMortes[nome]) mobEvento({ t: 'p', n: nome });
+        contMortes[nome] = mc;
+    }
     if (Array.isArray(d.blocos)) {
         for (const bl of d.blocos) {
             if (!Array.isArray(bl) || bl.length < 4) continue;
@@ -173,6 +263,44 @@ function aplicarJogador(d, agora) {
             (ganhos[nome] || (ganhos[nome] = [])).push(dr.it);
         }
     }
+    // mobs: criação (o servidor dá o id), atualização pelo dono e dano
+    {
+        const eu = jogadores[nome];
+        const ms = Date.now();
+        const tm = taxaMob[nome] || (taxaMob[nome] = { t: ms, n: 0, d: 0 });
+        if (ms - tm.t > 1000) { tm.t = ms; tm.n = 0; tm.d = 0; }
+        if (Array.isArray(d.mobs_novos)) {
+            for (const mn of d.mobs_novos.slice(0, 4)) {
+                if (!Array.isArray(mn) || mn.length < 4 || tm.n >= 6) continue;
+                const tp = Math.trunc(+mn[0]), x = +mn[1], y = +mn[2], z = +mn[3];
+                if (!(tp >= 0 && tp < MOB_NOMES.length) || ![x, y, z].every(Number.isFinite)) continue;
+                if (y < -2 || y > H + 8 || Math.abs(x) > LIMITE_XZ || Math.abs(z) > LIMITE_XZ) continue;
+                if (Math.hypot(x - eu.x, z - eu.z) > 90) continue;
+                tm.n++;
+                criarMobServidor(tp, Math.round(x * 100) / 100, Math.round(y * 100) / 100, Math.round(z * 100) / 100, nome);
+            }
+        }
+        if (Array.isArray(d.mobs_upd)) {
+            for (const u of d.mobs_upd.slice(0, 60)) {
+                if (!Array.isArray(u) || u.length < 6) continue;
+                const m = mobs.get(Math.trunc(+u[0]));
+                if (!m || m.dono !== nome) continue;                 // só o dono move o mob
+                const x = +u[1], y = +u[2], z = +u[3], r = +u[4];
+                if (![x, y, z, r].every(Number.isFinite)) continue;
+                if (Math.abs(x) > LIMITE_XZ || Math.abs(z) > LIMITE_XZ || y < -20 || y > H + 40) continue;
+                m.x = x; m.y = y; m.z = z; m.r = r;
+                m.e = Math.trunc(+u[5]) || 0;
+                m.sg = Math.max(0, Math.min(2, +u[6] || 0));
+            }
+        }
+        if (Array.isArray(d.mobs_dano)) {
+            for (const dn of d.mobs_dano.slice(0, 8)) {
+                if (!Array.isArray(dn) || dn.length < 2 || tm.d >= 30) continue;
+                tm.d++;
+                danoMob(nome, Math.trunc(+dn[0]), +dn[1], dn[2], dn[3], !!dn[4]);
+            }
+        }
+    }
     if (d.chat !== undefined && d.chat !== null) {
         const lista = Array.isArray(d.chat) ? d.chat.slice(0, 3) : [d.chat];
         for (const t of lista) adicionarChat(nome, t);
@@ -182,7 +310,7 @@ function aplicarJogador(d, agora) {
 
 function limparInativos(agora) {
     for (const k in jogadores) {
-        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; delete ultimoChatMs[k]; delete taxaDrop[k]; }
+        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; delete ultimoChatMs[k]; delete taxaDrop[k]; delete taxaMob[k]; delete contMortes[k]; }
     }
 }
 
@@ -198,12 +326,16 @@ function sincronizar(corpo) {
     const desdeChat = Number.isFinite(+corpo.desdeChat) ? Math.trunc(+corpo.desdeChat) : -1;
     const nome = aplicarJogador(corpo.dados_jogador, agora);
     const desdeDrops = Number.isFinite(+corpo.desdeDrops) ? Math.trunc(+corpo.desdeDrops) : -1;
+    const desdeMev = Number.isFinite(+corpo.desdeMev) ? Math.trunc(+corpo.desdeMev) : -1;
     limparInativos(agora);
     const completo = precisaCompleto(desde);
     const saida = { jogadores: Object.values(jogadores), seq, tempo: agora, completo };
     if (completo) saida.blocos = blocos;
     else saida.eventos = log.filter(l => l.s > desde);
     saida.cseq = cseq;
+    saida.mobs = listaMobsPara(nome);
+    saida.mseq = mevSeq;
+    if (desdeMev >= 0 && desdeMev < mevSeq) { const ev = mobEv.filter(e => e.s > desdeMev); if (ev.length) saida.mev = ev; }
     if (desdeDrops !== dseq) { saida.drops = listaDrops(); saida.dseq = dseq; }
     if (nome && ganhos[nome] && ganhos[nome].length) { saida.ganhos = ganhos[nome]; ganhos[nome] = []; }
     if (desdeChat >= 0 && desdeChat <= cseq) {
@@ -311,7 +443,7 @@ function fechar(cli) {
     if (!cli.aberto) return;
     cli.aberto = false;
     clientes.delete(cli);
-    if (cli.nome && donos[cli.nome] === cli) { delete donos[cli.nome]; delete jogadores[cli.nome]; }
+    if (cli.nome && donos[cli.nome] === cli) { delete donos[cli.nome]; delete jogadores[cli.nome]; delete contMortes[cli.nome]; }
     try { cli.socket.destroy(); } catch (e) { }
 }
 
@@ -377,7 +509,7 @@ server.on('upgrade', (req, socket, head) => {
         `Sec-WebSocket-Accept: ${aceite}\r\n\r\n`
     );
     socket.setNoDelay(true);
-    const cli = { socket, nome: null, enviado: -1, enviadoChat: cseq, ack: 0, dropVer: -1, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
+    const cli = { socket, nome: null, enviado: -1, enviadoChat: cseq, enviadoMev: mevSeq, ack: 0, dropVer: -1, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
     clientes.add(cli);
     socket.on('data', chunk => {
         cli.buf = Buffer.concat([cli.buf, chunk]);
@@ -412,6 +544,12 @@ setInterval(() => {
         const chats = cli.enviadoChat >= cseq ? [] : chatLog.filter(c => c.c > cli.enviadoChat);
         cli.enviadoChat = cseq;
         if (chats.length) extra += `,"chats":${JSON.stringify(chats)}`;
+        extra += `,"mobs":${JSON.stringify(listaMobsPara(cli.nome))},"mseq":${mevSeq}`;
+        if (cli.enviadoMev < mevSeq) {
+            const ev = mobEv.filter(e => e.s > cli.enviadoMev);
+            if (ev.length) extra += `,"mev":${JSON.stringify(ev)}`;
+            cli.enviadoMev = mevSeq;
+        }
         if (cli.dropVer !== dseq) { extra += `,"drops":${listaDropsStr()},"dseq":${dseq}`; cli.dropVer = dseq; }
         const gn = ganhos[cli.nome];
         if (gn && gn.length) { extra += `,"ganhos":${JSON.stringify(gn)}`; ganhos[cli.nome] = []; }
@@ -426,6 +564,9 @@ setInterval(() => {
     for (const [id, d] of drops) if (agora - d.t > DROP_TTL_MS) { drops.delete(id); mudou = true; }
     if (mudou) dropsMudaram();
 }, 5000);
+
+// Mobs: troca de dono / limpeza
+setInterval(manterMobs, 1000);
 
 // Plantações crescem sozinhas: a cada estágio o bloco do arado muda (todos os jogadores recebem o evento)
 setInterval(() => {
