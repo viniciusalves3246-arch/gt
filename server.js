@@ -18,6 +18,10 @@ const TIMEOUT = 10;            // segundos sem sinal => jogador removido
 const MAX_LOG = 300;
 const MAX_BODY = 1024 * 1024;  // 1 MB
 const TICK_MS = 66;            // ~15 envios por segundo pelo WebSocket
+const MAX_ITEM = 63;           // ids de item aceitos nos drops (blocos + plantas)
+const DROP_TTL_MS = 5 * 60 * 1000;   // item no chão some depois de 5 min
+const MAX_DROPS = 500;
+const ALCANCE_PEGAR_XZ = 6;    // distância horizontal máxima (tolerante à latência) para coletar
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 // ---------- Estado ----------
@@ -29,6 +33,14 @@ let blocos = {};               // "x,y,z" -> tipo
 let cseq = 0;                  // contador de mensagens de chat
 let chatLog = [];              // últimas mensagens {c, n, t}
 const ultimoChatMs = {};       // nome -> hora da última mensagem (anti-spam)
+
+// ---------- Itens no chão (drops) ----------
+const drops = new Map();       // id -> { i, x, y, z, it, t }
+let dropId = 0;
+let dseq = 0;                  // muda sempre que a lista de drops muda
+let dropsStr = null;           // cache JSON da lista
+const ganhos = {};             // nome -> itens coletados, aguardando entrega ao jogador
+const taxaDrop = {};           // nome -> { t, n } (limite de criação por segundo)
 
 try {
     if (fs.existsSync(ARQ_BLOCOS)) blocos = JSON.parse(fs.readFileSync(ARQ_BLOCOS, 'utf8')) || {};
@@ -57,6 +69,19 @@ function mudarBloco(x, y, z, b) {
     log.push({ s: seq, x, y, z, b });
     if (log.length > MAX_LOG) log = log.slice(-MAX_LOG);
     agendarSalvar();
+}
+
+function dropsMudaram() { dseq++; dropsStr = null; }
+function listaDrops() { return [...drops.values()].map(d => [d.i, d.x, d.y, d.z, d.it]); }
+function listaDropsStr() {
+    if (dropsStr === null) dropsStr = JSON.stringify(listaDrops());
+    return dropsStr;
+}
+function criarDrop(x, y, z, it) {
+    if (drops.size >= MAX_DROPS) drops.delete(drops.keys().next().value);   // descarta o mais antigo
+    const id = ++dropId;
+    drops.set(id, { i: id, x, y, z, it, t: Date.now() });
+    dropsMudaram();
 }
 
 // ---------- Lógica compartilhada ----------
@@ -99,6 +124,34 @@ function aplicarJogador(d, agora) {
             }
         }
     }
+    // itens que o jogador soltou ao quebrar blocos (modo sobrevivência)
+    if (Array.isArray(d.drops_novos)) {
+        const ms = Date.now();
+        const tx = taxaDrop[nome] || (taxaDrop[nome] = { t: ms, n: 0 });
+        if (ms - tx.t > 1000) { tx.t = ms; tx.n = 0; }
+        for (const dn of d.drops_novos.slice(0, 8)) {
+            if (!Array.isArray(dn) || dn.length < 4 || tx.n >= 40) continue;
+            const x = Math.round(+dn[0] * 100) / 100, y = Math.round(+dn[1] * 100) / 100;
+            const z = Math.round(+dn[2] * 100) / 100, it = Math.trunc(+dn[3]);
+            if (![x, y, z, it].every(Number.isFinite)) continue;
+            if (Math.abs(x) > LIMITE_XZ + 1 || Math.abs(z) > LIMITE_XZ + 1 || y < -2 || y > H + 24) continue;
+            if (it < 0 || it > MAX_ITEM) continue;
+            tx.n++;
+            criarDrop(x, y, z, it);
+        }
+    }
+    // coleta: o primeiro jogador a pedir leva o item; os outros não recebem nada
+    if (Array.isArray(d.pegar)) {
+        const eu = jogadores[nome];
+        for (const rid of d.pegar.slice(0, 16)) {
+            const dr = drops.get(Math.trunc(+rid));
+            if (!dr) continue;
+            if (Math.hypot(dr.x - eu.x, dr.z - eu.z) > ALCANCE_PEGAR_XZ || Math.abs(dr.y - eu.y) > 40) continue;
+            drops.delete(dr.i);
+            dropsMudaram();
+            (ganhos[nome] || (ganhos[nome] = [])).push(dr.it);
+        }
+    }
     if (d.chat !== undefined && d.chat !== null) {
         const lista = Array.isArray(d.chat) ? d.chat.slice(0, 3) : [d.chat];
         for (const t of lista) adicionarChat(nome, t);
@@ -108,7 +161,7 @@ function aplicarJogador(d, agora) {
 
 function limparInativos(agora) {
     for (const k in jogadores) {
-        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; delete ultimoChatMs[k]; }
+        if (agora - jogadores[k].ultimo_acesso > TIMEOUT) { delete jogadores[k]; delete donos[k]; delete ultimoChatMs[k]; delete taxaDrop[k]; }
     }
 }
 
@@ -122,13 +175,16 @@ function sincronizar(corpo) {
     const agora = Math.floor(Date.now() / 1000);
     const desde = Number.isFinite(+corpo.desde) ? Math.trunc(+corpo.desde) : -1;
     const desdeChat = Number.isFinite(+corpo.desdeChat) ? Math.trunc(+corpo.desdeChat) : -1;
-    aplicarJogador(corpo.dados_jogador, agora);
+    const nome = aplicarJogador(corpo.dados_jogador, agora);
+    const desdeDrops = Number.isFinite(+corpo.desdeDrops) ? Math.trunc(+corpo.desdeDrops) : -1;
     limparInativos(agora);
     const completo = precisaCompleto(desde);
     const saida = { jogadores: Object.values(jogadores), seq, tempo: agora, completo };
     if (completo) saida.blocos = blocos;
     else saida.eventos = log.filter(l => l.s > desde);
     saida.cseq = cseq;
+    if (desdeDrops !== dseq) { saida.drops = listaDrops(); saida.dseq = dseq; }
+    if (nome && ganhos[nome] && ganhos[nome].length) { saida.ganhos = ganhos[nome]; ganhos[nome] = []; }
     if (desdeChat >= 0 && desdeChat <= cseq) {
         const ch = chatLog.filter(c => c.c > desdeChat);
         if (ch.length) saida.chats = ch;
@@ -300,7 +356,7 @@ server.on('upgrade', (req, socket, head) => {
         `Sec-WebSocket-Accept: ${aceite}\r\n\r\n`
     );
     socket.setNoDelay(true);
-    const cli = { socket, nome: null, enviado: -1, enviadoChat: cseq, ack: 0, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
+    const cli = { socket, nome: null, enviado: -1, enviadoChat: cseq, ack: 0, dropVer: -1, aberto: true, buf: head && head.length ? Buffer.from(head) : Buffer.alloc(0), frag: [] };
     clientes.add(cli);
     socket.on('data', chunk => {
         cli.buf = Buffer.concat([cli.buf, chunk]);
@@ -335,9 +391,20 @@ setInterval(() => {
         const chats = cli.enviadoChat >= cseq ? [] : chatLog.filter(c => c.c > cli.enviadoChat);
         cli.enviadoChat = cseq;
         if (chats.length) extra += `,"chats":${JSON.stringify(chats)}`;
+        if (cli.dropVer !== dseq) { extra += `,"drops":${listaDropsStr()},"dseq":${dseq}`; cli.dropVer = dseq; }
+        const gn = ganhos[cli.nome];
+        if (gn && gn.length) { extra += `,"ganhos":${JSON.stringify(gn)}`; ganhos[cli.nome] = []; }
         enviarTexto(cli, `{"jogadores":${jogStr},"seq":${seq},"tempo":${agora},"completo":${completo},"ack":${cli.ack},"cseq":${cseq}${extra}}`);
     }
 }, TICK_MS);
+
+// Itens no chão que ficaram tempo demais somem
+setInterval(() => {
+    const agora = Date.now();
+    let mudou = false;
+    for (const [id, d] of drops) if (agora - d.t > DROP_TTL_MS) { drops.delete(id); mudou = true; }
+    if (mudou) dropsMudaram();
+}, 5000);
 
 server.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 
