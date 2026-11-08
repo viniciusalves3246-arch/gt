@@ -558,6 +558,8 @@
          ID.folhas, ID.folhas_betula, ID.folhas_abeto, ID.folhas_negro, ID.folhas_secas].forEach(i => { DROPA_BLOCO[i] = 1; });
         const itemDeBloco = (id) => (id > 0 && id <= NTIPOS && DROPA_BLOCO[id]) ? id - 1 : -1;
         const itemDePlanta = (tp) => tp === 0 ? NTIPOS : tp === 3 ? NTIPOS + 1 : -1;   // capim e cogumelo
+        const COMIDA = {};                 // item -> pontos de fome que restaura (2 pontos = 1 ícone cheio)
+        COMIDA[NTIPOS + 1] = 1;            // cogumelo: enche metade de um ícone
 
         const CAPS = {
             grama: 26000, terra: 26000, rocha: 16000,
@@ -1083,6 +1085,7 @@
         }
 
         function descartarPersonagem(p) {
+            if (p.itemMesh && p.armR) p.armR.remove(p.itemMesh);   // miniatura usa materiais compartilhados
             p.mesh.traverse(o => {
                 if (o.geometry) o.geometry.dispose();
                 if (o.material) {
@@ -1862,6 +1865,12 @@
             // ---------- Mão em 1ª pessoa (presa à câmera) ----------
             scene.add(camera);   // a câmera precisa estar na cena para renderizar seus filhos
             const maoPivo = new THREE.Group();
+            const maoItemGrp = new THREE.Group();          // item selecionado, na ponta da mão
+            maoItemGrp.position.set(0, -0.93, -0.17);
+            maoItemGrp.rotation.set(0.35, 0.7, 0);
+            maoPivo.add(maoItemGrp);
+            let itemMaoAtual = -2;
+            const matsMaoCache = new Map();
             {
                 const matsBraco = meuChar.armR.children[0].material.map(m => {
                     const c = m.clone();
@@ -1876,10 +1885,11 @@
                 maoPivo.visible = false;
                 camera.add(maoPivo);
             }
-            const mao = { golpe: 0, fase: 0, q: 0, p: 0, tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
+            const mao = { fc: 0, golpe: 0, fase: 0, q: 0, p: 0, tx: 0, ty: 0, tz: 0, rx: 0, ry: 0, rz: 0 };
             function atualizarMao(dt) {
                 maoPivo.visible = modoCamera === 1;
                 if (!maoPivo.visible) { mao.fase = 0; return; }
+                definirItemMao(barra[slotSel]);
 
                 // posição base (canto inferior direito; ajusta em telas estreitas)
                 const bx = Math.min(0.42, 0.637 * camera.aspect * 0.62);
@@ -1909,6 +1919,11 @@
                     ry: 0.18 + 0.25 * qa + 0.20 * pa,
                     rz: -0.05 - 0.10 * qa
                 };
+                if (meuChar.comendo) {                  // leva o alimento à boca e mastiga
+                    mao.fc += dt * 14;
+                    alvo.tx = 0.1; alvo.ty = -0.3 + Math.sin(mao.fc) * 0.015; alvo.tz = -0.3;
+                    alvo.rx = 2.0 + Math.sin(mao.fc) * 0.06; alvo.ry = -0.1; alvo.rz = 0;
+                }
                 const k = 1 - Math.exp(-28 * dt);
                 for (const p in alvo) mao[p] += (alvo[p] - mao[p]) * k;
                 if (mao.tx === 0 && mao.tz === 0) { mao.tx = bx; mao.ty = by; mao.tz = bz; mao.rx = base; }
@@ -2952,6 +2967,7 @@
                             if (rem.snaps.length > 12) rem.snaps.shift();
                         }
                         rem.emoteAtual = j.emote;
+                        rem.itemMao = typeof j.item === 'number' ? j.item : -1;
                     });
                     for (const k in remotos) {
                         if (!presentes.has(k)) {
@@ -3009,7 +3025,7 @@
                     dados_jogador: {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg, item: barra[slotSel]
                     }
                 };
                 if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
@@ -3036,7 +3052,7 @@
                     const dados = {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv, item: barra[slotSel]
                     };
                     const res = await fetch('/sync', {
                         method: 'POST',
@@ -3116,7 +3132,8 @@
                 }
 
                 if (!emote) {
-                    if (p.quebrando) aRx = -1.3 + Math.sin(t * 1.6) * 0.9;
+                    if (p.comendo) aRx = -1.7 + Math.sin(t * 2.6) * 0.18;
+                    else if (p.quebrando) aRx = -1.3 + Math.sin(t * 1.6) * 0.9;
                     else if (p.golpe > 0) aRx = -1.9 * Math.sin((1 - p.golpe / 0.25) * Math.PI);
                 }
                 if (p.golpe > 0) p.golpe -= dt;
@@ -3611,6 +3628,65 @@
             }
 
             // ============================================================
+            // ITEM NA MÃO (miniatura) e COMER
+            // ============================================================
+            const clonarSemProfundidade = (m) => { const c = m.clone(); c.depthTest = false; return c; };
+            function matsParaMao(item) {                 // materiais da mão: sempre desenhados por cima
+                let r = matsMaoCache.get(item);
+                if (r) return r;
+                const base = item < NTIPOS ? MAT[TIPOS[item]] : matDropPlanta[ITENS[item].planta];
+                r = Array.isArray(base) ? base.map(clonarSemProfundidade) : clonarSemProfundidade(base);
+                matsMaoCache.set(item, r);
+                return r;
+            }
+            function criarMeshItem(item, esc, mats) {
+                let m;
+                if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, mats || MAT[TIPOS[item]]); m.scale.setScalar(esc); }
+                else {
+                    m = new THREE.Mesh(GEO_CRUZ, mats || matDropPlanta[ITENS[item].planta]);
+                    m.scale.setScalar(esc * 1.55);
+                    m.position.y = -esc * 0.78;
+                }
+                return m;
+            }
+            function definirItemMao(item) {              // 1ª pessoa
+                if (item === itemMaoAtual) return;
+                itemMaoAtual = item;
+                while (maoItemGrp.children.length) maoItemGrp.remove(maoItemGrp.children[0]);
+                if (!(item >= 0 && item < NITENS)) return;
+                const m = criarMeshItem(item, 0.3, matsParaMao(item));
+                m.renderOrder = 1000;
+                maoItemGrp.add(m);
+            }
+            function definirItemNoBraco(p, item) {       // 3ª pessoa e outros jogadores
+                if (p.itemAtual === item) return;
+                p.itemAtual = item;
+                if (p.itemMesh) { p.armR.remove(p.itemMesh); p.itemMesh = null; }
+                if (!(item >= 0 && item < NITENS)) return;
+                const g = new THREE.Group();
+                g.position.set(0, -0.92, 0.2);
+                g.rotation.y = 0.7;
+                g.add(criarMeshItem(item, 0.36));
+                p.armR.add(g);
+                p.itemMesh = g;
+            }
+
+            const COMER_TEMPO = 1.2;                     // segundos segurando para comer
+            let comerT = 0, comerTick = 0, comerBloq = false, comerSlot = -1;
+            function atualizarComer(dt, item) {
+                meuChar.comendo = true;
+                comerT += dt; comerTick -= dt;
+                if (comerTick <= 0) { rajada(0.07, 'bandpass', 1400 + Math.random() * 800, 1.3, 0.22); comerTick = 0.22; }
+                if (comerT >= COMER_TEMPO) {
+                    fome = Math.min(FOME_MAX, fome + COMIDA[item]);
+                    if (--barraQtd[slotSel] <= 0) { barra[slotSel] = -1; barraQtd[slotSel] = 0; }
+                    inventarioMudou();
+                    rajada(0.12, 'lowpass', 520, 0.8, 0.3);
+                    comerT = 0; comerBloq = true; meuChar.comendo = false;   // solte e segure de novo para comer outro
+                }
+            }
+
+            // ============================================================
             // LOOP PRINCIPAL
             // ============================================================
             const _dirCam = new THREE.Vector3();
@@ -3702,6 +3778,7 @@
                     if (emoteTimer <= 0) { emoteAtivo = ''; balloonEl.style.display = 'none'; }
                 }
                 aplicarAnimacao(meuChar, velAnim, !noChao, dt, emoteAtivo);
+                definirItemNoBraco(meuChar, barra[slotSel]);
                 atualizarBlob(meuChar, posX, posY, posZ);
                 atualizarMobs(dt);
                 atualizarDrops(dt, tempoJogo);
@@ -3771,7 +3848,19 @@
                 } else if (holdBtnQuebrar || kb.quebrar || mouseEsqTravado) {
                     qOn = true; aimPadrao(_w); qnx = _w[0]; qny = _w[1];
                 }
-                atualizarQuebra(dt, qOn, qnx, qny, movendo);
+                {
+                    const itSel = barra[slotSel];
+                    const podeComer = modoJogo === 'sobrevivencia' && itSel >= 0 && barraQtd[slotSel] > 0 && COMIDA[itSel] > 0 && fome < FOME_MAX - 0.01;
+                    if (!qOn) comerBloq = false;
+                    if (qOn && podeComer && !comerBloq) {          // segurar com comida na mão: come em vez de quebrar
+                        if (comerSlot !== slotSel) { comerSlot = slotSel; comerT = 0; }
+                        atualizarComer(dt, itSel);
+                        atualizarQuebra(dt, false, qnx, qny, movendo);
+                    } else {
+                        comerT = 0; meuChar.comendo = false;
+                        atualizarQuebra(dt, qOn && !comerBloq, qnx, qny, movendo);
+                    }
+                }
 
                 // marcador do alvo (dedo / cursor / centro)
                 let vnx = 0, vny = 0;
@@ -3815,6 +3904,7 @@
                     r.velAnim += (vr - r.velAnim) * (1 - Math.exp(-12 * dt));
                     const g = atualizarBlob(r, s.x, s.y, s.z);
                     aplicarAnimacao(r, r.velAnim, (s.y - g) > 0.25, dt, r.emoteAtual);
+                    definirItemNoBraco(r, r.itemMao === undefined ? -1 : r.itemMao);
                     const tg = tagsNomes[k];
                     if (tg) {
                         _v.set(s.x, s.y + 2.05, s.z).project(camera);
