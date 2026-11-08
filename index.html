@@ -395,7 +395,7 @@
         const YMAX = 64;             // altura máxima do mundo
         const ALCANCE = 6.5;         // alcance de interação (blocos)
         const SEED = 1337;
-        const ATRASO_INTERP = 300;
+        const ATRASO_INTERP = 150;
 
         const TIPOS = [
             'grama', 'terra', 'rocha', 'pedra', 'tabua', 'log', 'areia', 'tijolo', 'vidro', 'folhas',
@@ -2215,7 +2215,7 @@
             ['pointerdown', 'touchend', 'keydown'].forEach(ev => window.addEventListener(ev, iniciarAudio, { passive: true }));
 
             // ============================================================
-            // MULTIPLAYER (Node.js Polling) + interpolação
+            // MULTIPLAYER (WebSocket + HTTP de reserva) + interpolação
             // ============================================================
             const remotos = {};
             const tagsNomes = {};
@@ -2232,24 +2232,7 @@
                 };
             }
 
-            async function syncServidor() {
-                if (sincronizando) return;
-                if (performance.now() < proximaTentativa) return;
-                sincronizando = true;
-                const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
-                try {
-                    const dados = {
-                        nome: meuNome, genero: meuGenero,
-                        x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados
-                    };
-                    const res = await fetch('/sync', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq })
-                    });
-                    if (!res.ok) throw new Error('HTTP ' + res.status);
-                    const ret = await res.json();
+            function aplicarRespostaServidor(ret) {
                     falhas = 0;
                     if (ret.tempo) offsetServidor = ret.tempo * 1000 - Date.now();
 
@@ -2307,6 +2290,68 @@
                             delete remotos[k]; delete tagsNomes[k];
                         }
                     }
+            }
+
+            // ---------- WebSocket (principal) ----------
+            let ws = null, wsOk = false, wsTentativas = 0, edId = 0, emVoo = [];
+            function conectarWS() {
+                try {
+                    ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+                } catch (e) { setTimeout(conectarWS, 3000); return; }
+                ws.onopen = () => { wsOk = true; wsTentativas = 0; ultimoSeq = -1; falhas = 0; };
+                ws.onmessage = ev => {
+                    try {
+                        const ret = JSON.parse(ev.data);
+                        if (ret.ack) emVoo = emVoo.filter(e => e.id > ret.ack);
+                        aplicarRespostaServidor(ret);
+                    } catch (e) { }
+                };
+                ws.onclose = () => {
+                    wsOk = false; wsTentativas++;
+                    // edições enviadas e não confirmadas voltam para a fila (o HTTP assume enquanto reconecta)
+                    for (let i = emVoo.length - 1; i >= 0; i--) bufferEdicoes.unshift(...emVoo[i].lista);
+                    emVoo = [];
+                    setTimeout(conectarWS, Math.min(5000, 500 * wsTentativas));
+                };
+                ws.onerror = () => { try { ws.close(); } catch (e) { } };
+            }
+            function enviarWS() {
+                if (!wsOk || !ws || ws.readyState !== 1) return;
+                const lista = bufferEdicoes.splice(0, bufferEdicoes.length);
+                const msg = {
+                    dados_jogador: {
+                        nome: meuNome, genero: meuGenero,
+                        x: posX, y: posY, z: posZ, rot: rotY,
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista
+                    }
+                };
+                if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
+                try { ws.send(JSON.stringify(msg)); }
+                catch (e) { if (lista.length) { bufferEdicoes.unshift(...lista); emVoo.pop(); } }
+            }
+            conectarWS();
+            setInterval(enviarWS, 66);
+
+            async function syncServidor() {
+                if (wsOk) return; // WebSocket ativo: o HTTP só entra como reserva
+                if (sincronizando) return;
+                if (performance.now() < proximaTentativa) return;
+                sincronizando = true;
+                const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
+                try {
+                    const dados = {
+                        nome: meuNome, genero: meuGenero,
+                        x: posX, y: posY, z: posZ, rot: rotY,
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados
+                    };
+                    const res = await fetch('/sync', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq })
+                    });
+                    if (!res.ok) throw new Error('HTTP ' + res.status);
+                    const ret = await res.json();
+                    aplicarRespostaServidor(ret);
                 } catch (e) {
                     if (enviados.length) bufferEdicoes.unshift(...enviados);
                     if (bufferEdicoes.length > 2000) bufferEdicoes.splice(0, bufferEdicoes.length - 2000);
