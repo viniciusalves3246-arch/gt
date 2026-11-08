@@ -310,6 +310,24 @@
             pointer-events: none;
             text-shadow: 2px 2px #000;
         }
+        #dano-flash {
+            position: absolute;
+            inset: 0;
+            z-index: 8;
+            pointer-events: none;
+            opacity: 0;
+            background: radial-gradient(ellipse at center, rgba(255, 0, 0, 0) 35%, rgba(170, 0, 0, 0.65) 100%);
+            transition: opacity .28s ease-out;
+        }
+        #chuva-fx {
+            position: absolute;
+            inset: 0;
+            z-index: 7;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 1.2s ease;
+            background: linear-gradient(180deg, rgba(20, 28, 40, .55), rgba(10, 14, 22, .25) 45%, rgba(10, 14, 22, 0) 80%);
+        }
         #hotbar {
             position: absolute;
             bottom: calc(12px + var(--sab));
@@ -415,6 +433,16 @@
         .barra-v { display: flex; gap: 2px; }
         .barra-v img { width: 22px; height: 20px; image-rendering: pixelated; }
 
+        #sono-fx {
+            position: absolute; inset: 0; z-index: 30; background: #000;
+            opacity: 0; pointer-events: none; transition: opacity 1.4s ease;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; color: #fff; text-align: center; padding: 20px;
+        }
+        #sono-fx.on { opacity: 1; pointer-events: auto; }
+        #sono-fx .t { font-size: clamp(14px, 4.5vw, 22px); text-shadow: 3px 3px #222; }
+        #sono-fx .s { font-size: 8px; color: #8aa097; line-height: 1.8; }
+
         @media (max-width: 700px) {
             .barra-v img { width: 18px; height: 16px; }
             :root { --slot: 32px; }
@@ -456,10 +484,16 @@
         Online: <span id="onlineCount">1</span> · FPS: <span id="fps">--</span><br>
         Visão: <span id="camLabel">3ª Pessoa</span> · Hora: <span id="hora">--:--</span>
         <div class="hint pc-only">
-            Esq. segurar: quebrar · Dir.: pôr bloco<br>
+            Esq. segurar: quebrar/atacar · Dir.: pôr bloco<br>
             Dir. arrastar: girar · L: travar mouse<br>
             WASD · Espaço · V câmera · F/E quebrar/pôr<br>
-            Roda ou [ ]: trocar bloco · Z X C B emotes
+            Roda ou [ ]: trocar item · Z X C B emotes<br>
+            Espada: bata em ovelhas/porcos p/ carne<br>
+            Picareta: quebra pedra e minérios 3x mais rápido<br>
+            Pá: quebra terra e areia 3x mais rápido<br>
+            Lança: mais dano e mais alcance · Tocha: luz<br>
+            À noite surgem zumbis (modo sobrevivência)<br>
+            Comandos: /ajuda · /dia · /noite · /chuva · /limpo
         </div>
     </div>
 
@@ -471,7 +505,7 @@
         <div id="chat-log"></div>
     </div>
 
-    <div id="dica" class="touch-only">Toque na tela: <b>pôr bloco</b> no lugar tocado<br>Segure o dedo: <b>quebrar</b> · Arraste: girar</div>
+    <div id="dica" class="touch-only">Toque na tela: <b>pôr bloco</b> no lugar tocado<br>Segure o dedo: <b>quebrar/atacar</b> · Arraste: girar<br>Espada: ovelhas/porcos · Picareta: pedra e minério<br>Pá: terra e areia · Lança: mais alcance<br>Tocha: toque no chão p/ iluminar<br>Comandos: /ajuda · /dia · /noite · /chuva · /limpo</div>
 
     <div id="labels-container"></div>
 
@@ -497,6 +531,9 @@
     </div>
 
     <div id="mira">+</div>
+    <div id="dano-flash"></div>
+    <div id="chuva-fx"></div>
+    <div id="sono-fx"><div class="t">Dormindo...</div><div class="s">(toque na tela para sair da cama)</div></div>
     <div id="nome-bloco"></div>
     <div id="inventario">
         <div id="inv-topo">
@@ -541,7 +578,8 @@
         const TIPOS = [
             'grama', 'terra', 'rocha', 'pedra', 'tabua', 'log', 'areia', 'tijolo', 'vidro', 'folhas',
             'betula', 'folhas_betula', 'abeto', 'folhas_abeto', 'carvalho_negro', 'folhas_negro',
-            'tronco_morto', 'folhas_secas', 'musgo', 'podzol', 'grama_morta', 'lama', 'pedra_negra', 'tabua_escura'
+            'tronco_morto', 'folhas_secas', 'musgo', 'podzol', 'grama_morta', 'lama', 'pedra_negra', 'tabua_escura',
+            'minerio_carvao', 'minerio_ferro', 'minerio_ouro'
         ];
         const ID = {};
         TIPOS.forEach((t, i) => { ID[t] = i + 1; });
@@ -558,13 +596,16 @@
             folhas_secas: ['Folhas Secas', 0.15, 0xb06a20], musgo: ['Pedra Musgosa', 1.8, 0x5a7a4a],
             podzol: ['Terra Podre', 0.6, 0x5d4020], grama_morta: ['Grama Seca', 0.5, 0x8d8b45],
             lama: ['Lama', 0.5, 0x3b2c22], pedra_negra: ['Pedra Negra', 2.4, 0x2a2a30],
-            tabua_escura: ['Tábuas Escuras', 1.0, 0x4a3320]
+            tabua_escura: ['Tábuas Escuras', 1.0, 0x4a3320],
+            minerio_carvao: ['Bloco de Carvão', 2.6, 0x2b2b2b], minerio_ferro: ['Bloco de Ferro', 3.0, 0xd8af93],
+            minerio_ouro: ['Bloco de Ouro', 3.2, 0xf7d64a]
         };
         INFO.arado = ['Terra Arada', 0.5, 0x4b3020];
         INFO.arado_semente = ['Terra com Sementes', 0.5, 0x4b3020];
         INFO.arado_s1 = ['Plantação', 0.5, 0x4b3020];
         INFO.arado_s2 = ['Plantação', 0.5, 0x4b3020];
         INFO.arado_s3 = ['Plantação', 0.5, 0x4b3020];
+        INFO.tocha = ['Tocha', 0.1, 0xffb347];
         const NTIPOS = TIPOS.length;
         const NPLANTAS = 5;   // tipos de planta; ids de edição de planta = NTIPOS + 1 + tipo
         const ehFolha = new Uint8Array(NTIPOS + 2);
@@ -580,15 +621,73 @@
         const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630, 0x5a9a3a, 0x6aa040, 0xd4b040];
         const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85, 0.35, 0.65, 0.95];   // altura da caixa de seleção
         // blocos extras (terra arada e plantação): ids de edição logo depois das plantas
-        const EXTRAS = ['arado', 'arado_semente', 'arado_s1', 'arado_s2', 'arado_s3'];
+        const EXTRAS = ['arado', 'arado_semente', 'arado_s1', 'arado_s2', 'arado_s3', 'tocha'];
         const ID_ARADO = NTIPOS + NPLANTAS + 1;     // 30 terra arada
         const ID_PLANTADO = ID_ARADO + 1;           // 31 arado com semente
         const ID_MADURO = ID_ARADO + 4;             // 34 trigo pronto (32 broto · 33 crescendo · 34 maduro)
+        const ID_TOCHA = ID_ARADO + 5;              // 38 tocha (bloco especial, não sólido)
         const NOME_ID = [''].concat(TIPOS);
         for (let i = 0; i < NPLANTAS; i++) NOME_ID.push('');
         EXTRAS.forEach(t => NOME_ID.push(t));
+        // tochas de parede: 39 apoiada em +X · 40 em -X · 41 em +Z · 42 em -Z (a tocha em pé é a 38)
+        for (let i = 0; i < 4; i++) NOME_ID.push('tocha');
+        const ehTochaId = (id) => id >= ID_TOCHA && id <= ID_TOCHA + 4;
+        const TOCHA_DIR = [null, [1, 0], [-1, 0], [0, 1], [0, -1]];
+        // ---------- porta e cama (blocos especiais, desenhados como objetos 3D) ----------
+        // porta (2 blocos de altura, fica na aresta do bloco): metade de baixo = ID_PORTA + orientação*2 + aberta · metade de cima = +8
+        const ID_PORTA = ID_TOCHA + 5;                 // 43..58
+        // cama (2 blocos de comprimento): pé = ID_CAMA + direção da cabeceira · cabeceira = +4
+        const ID_CAMA = ID_PORTA + 16;                 // 59..66
+        const ID_MAXBLOCO = ID_PORTA + 47;               // portas espelhadas: ID_PORTA+32 .. +47 (mesma ordem das normais)
+        for (let i = 0; i < 16; i++) NOME_ID.push('porta');
+        for (let i = 0; i < 8; i++) NOME_ID.push('cama');
+        for (let i = 0; i < 24; i++) NOME_ID.push('porta');   // 24 reservados + 16 espelhadas
+        const DIRS4 = [[0, -1], [1, 0], [0, 1], [-1, 0]];   // 0: -Z · 1: +X · 2: +Z · 3: -X
+        const ehPortaId = (id) => (id >= ID_PORTA && id < ID_PORTA + 16) || (id >= ID_PORTA + 32 && id < ID_PORTA + 48);
+        const portaEsp = (id) => id >= ID_PORTA + 32;                       // dobradiça no outro lado (espelhada)
+        const portaOff = (id) => id - ID_PORTA - (id >= ID_PORTA + 32 ? 32 : 0);   // 0..15
+        const portaBaixo = (id) => portaOff(id) < 8;
+        const portaIdx = (id) => portaOff(id) & 7;                          // orientação*2 + aberta
+        const portaBase = (id) => id - portaOff(id);                        // primeiro id da família (normal ou espelhada)
+        const ehCamaId = (id) => id >= ID_CAMA && id <= ID_CAMA + 7;
+        const ehEspecialId = (id) => ehTochaId(id) || ehPortaId(id) || ehCamaId(id);
+        const portaAberta = (id) => ehPortaId(id) && ((portaOff(id) & 1) === 1);
+        const ehSolidoBloco = (b) => b > 0 && !ehTochaId(b) && !portaAberta(b);
+        // caixa (x0,x1,z0,z1) da porta dentro da célula (cx,cz): fechada = fina na aresta · aberta = fina na ponta da dobradiça
+        const PORTA_T = 0.16;
+        function portaRect(id, cx, cz) {
+            const idx = portaIdx(id), o = idx >> 1, aberta = idx & 1, esp = portaEsp(id);
+            const n = DIRS4[o], ax = -n[1], az = n[0];
+            const u0 = aberta ? -0.5 : 0.5 - PORTA_T, u1 = 0.5;
+            const v0 = aberta ? (esp ? -0.5 : 0.5 - PORTA_T) : -0.5, v1 = aberta ? (esp ? -0.5 + PORTA_T : 0.5) : 0.5;
+            const xa = cx + n[0] * u0 + ax * v0, xb = cx + n[0] * u1 + ax * v1;
+            const za = cz + n[1] * u0 + az * v0, zb = cz + n[1] * u1 + az * v1;
+            return [Math.min(xa, xb), Math.max(xa, xb), Math.min(za, zb), Math.max(za, zb)];
+        }
+        // ponto (px,pz) está perto da parte fina da porta? (m = folga, usada pela câmera)
+        function portaPonto(id, px, pz, m) {
+            const r = portaRect(id, Math.floor(px + 0.5), Math.floor(pz + 0.5));
+            return px > r[0] - m && px < r[1] + m && pz > r[2] - m && pz < r[3] + m;
+        }
+        // o corpo (x0..x1, z0..z1) bate neste bloco? portas só batem na parte fina
+        function bateBloco(b, ix, iz, x0, x1, z0, z1) {
+            if (!b) return false;
+            if (ehPortaId(b)) { const r = portaRect(b, ix, iz); return x0 < r[1] && x1 > r[0] && z0 < r[3] && z1 > r[2]; }
+            return ehSolidoBloco(b);
+        }   // direção (x, z) do bloco que sustenta a tocha
         // itens que não são blocos (vêm depois das 2 plantas coletáveis)
         const ITEM_SEMENTE = NTIPOS + 2, ITEM_TRIGO = NTIPOS + 3, ITEM_ENXADA = NTIPOS + 4, ITEM_GRAVETO = NTIPOS + 5;
+        const ITEM_CARNE = NTIPOS + 6, ITEM_ESPADA = NTIPOS + 7, ITEM_PICARETA = NTIPOS + 8;
+        const ITEM_PA = NTIPOS + 9, ITEM_LANCA = NTIPOS + 10, ITEM_TOCHA = NTIPOS + 11;
+        // não existem mais itens "Minério" separados: o bloco de ferro/ouro (id - 1) é quebrado com picareta, colocado e usado na bancada
+        const ITEM_CARVAO = NTIPOS + 12, ITEM_BARRA_FERRO = NTIPOS + 13, ITEM_BARRA_OURO = NTIPOS + 14;
+        const ITEM_PORTA = NTIPOS + 17;
+        const ITEM_LA = NTIPOS + 15, ITEM_CAMA = NTIPOS + 16;   // lã (cai da ovelha) e cama
+        const ITEM_MINERIO_FERRO = ID.minerio_ferro - 1, ITEM_MINERIO_OURO = ID.minerio_ouro - 1;
+        const ehPedra = (id) => id === ID.rocha || id === ID.pedra || id === ID.musgo || id === ID.pedra_negra
+            || id === ID.minerio_carvao || id === ID.minerio_ferro || id === ID.minerio_ouro;   // blocos que a picareta quebra rápido
+        const ehTerra = (id) => id === ID.terra || id === ID.grama || id === ID.areia || id === ID.podzol
+            || id === ID.grama_morta || id === ID.lama || id === ID_ARADO || id === ID_PLANTADO;   // blocos que a pá quebra rápido
         const ITEM_TABUA = ID.tabua - 1, ITEM_TABUA_ESCURA = ID.tabua_escura - 1;
         const ITENS_TRONCO = [ID.log, ID.betula, ID.abeto, ID.carvalho_negro, ID.tronco_morto].map(i => i - 1);
         const CHANCE_SEMENTE = 0.7;   // chance de vir semente ao quebrar grama
@@ -596,13 +695,21 @@
         // ---------- Receitas da bancada (grade 3x3; a forma pode ficar em qualquer posição da grade) ----------
         // -1 = casa vazia · -2 = qualquer tronco · -3 = qualquer tábua
         const RECEITAS = (() => {
-            const T = -3, G = ITEM_GRAVETO, V = -1;
+            const T = -3, G = ITEM_GRAVETO, C = ITEM_CARVAO, V = -1, W = ITEM_LA;
             return [
                 { saida: ITEM_TABUA, qtd: 4, forma: [[-2]] },                              // 1 tronco -> 4 tábuas
                 { saida: ITEM_GRAVETO, qtd: 1, forma: [[T], [T]] },                        // 2 tábuas na vertical -> graveto
                 { saida: ITEM_ENXADA, qtd: 1, forma: [[T, T], [V, G], [V, G]] },           // 2 tábuas em cima + 2 gravetos na vertical
                 { saida: ITEM_ENXADA, qtd: 1, forma: [[T, T], [G, V], [G, V]] },           // (espelhada)
-                { saida: ITEM_ENXADA, qtd: 1, forma: [[T, V, T], [V, G, V], [V, G, V]] }   // tábuas nos cantos de cima (casas 1 e 3)
+                { saida: ITEM_PA, qtd: 1, forma: [[T], [G], [G]] },                         // 1 tábua + 2 gravetos -> pá (formato Minecraft)
+                { saida: ITEM_ESPADA, qtd: 1, forma: [[T], [T], [G]] },                   // 2 tábuas em cima + graveto embaixo -> espada
+                { saida: ITEM_PICARETA, qtd: 1, forma: [[T, T, T], [V, G, V], [V, G, V]] }, // 3 tábuas em cima + 2 gravetos -> picareta
+                { saida: ITEM_LANCA, qtd: 1, forma: [[T, G, G]] },                        // 1 tábua + 2 gravetos na horizontal -> lança
+                { saida: ITEM_CAMA, qtd: 1, forma: [[W, W, W], [T, T, T]] },
+                { saida: ITEM_PORTA, qtd: 1, forma: [[T, T], [T, T], [T, T]] },            // 6 tábuas (2 colunas x 3 linhas na vertical) -> porta              // 3 lã em cima + 3 tábuas embaixo -> cama
+                { saida: ITEM_TOCHA, qtd: 1, forma: [[C], [G]] },                         // 1 carvão + 1 graveto -> tocha
+                { saida: ITEM_BARRA_FERRO, qtd: 1, forma: [[ITEM_MINERIO_FERRO]] },        // minério de ferro -> barra de ferro
+                { saida: ITEM_BARRA_OURO, qtd: 1, forma: [[ITEM_MINERIO_OURO]] }          // minério de ouro -> barra de ouro
             ];
         })();
         function acharReceita(cel) {
@@ -638,9 +745,10 @@
         const itemDePlanta = (tp) => tp === 0 ? NTIPOS : tp === 3 ? NTIPOS + 1 : -1;   // capim e cogumelo
         const COMIDA = {};                 // item -> pontos de fome que restaura (2 pontos = 1 ícone cheio)
         COMIDA[NTIPOS + 1] = 1;            // cogumelo: enche metade de um ícone
+        COMIDA[ITEM_CARNE] = 2;            // carne: enche um ícone inteiro
 
         const CAPS = {
-            grama: 26000, terra: 26000, rocha: 16000,
+            grama: 26000, terra: 26000, rocha: 40000, pedra_negra: 12000,
             folhas: 20000, folhas_negro: 20000, folhas_abeto: 20000, folhas_betula: 12000, folhas_secas: 12000
         };
 
@@ -770,7 +878,7 @@
         // ============================================================
         // TEXTURAS E MATERIAIS
         // ============================================================
-        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ, TEX_ITENS;
+        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ, TEX_ITENS, TEX_TOCHA, TEX_PORTA, TEX_CAMA;
 
         function cruzGeo(w, h) {
             const g = new THREE.BufferGeometry();
@@ -974,6 +1082,54 @@
             const rocha = tex16(151, rochaPx);
             const negra = tex16(161, negraPx);
 
+            // ----- Minérios (pedra com veios coloridos) -----
+            const minerioTex = (seed, cor) => tex16(seed, (x, y, r) => {
+                const base = rochaPx(x, y, r);
+                const v = fbm2(x * 0.42 + 3, y * 0.42 - 2, 2, seed);
+                if (v < 0.63) return base;
+                const n = h2(x, y, seed + 5);
+                return variaCor(n > 0.72 ? mixCor(cor, 0xffffff, 0.28) : cor, 0.2, r);
+            });
+            const minerioCarvaoTex = minerioTex(471, 0x1b1b1b);
+            const minerioFerroTex = minerioTex(481, 0xd8af93);
+            const minerioOuroTex = minerioTex(491, 0xf2c744);
+            // ----- Tocha (sprite para o bloco de tocha) -----
+            const tochaTex = pixTex(16, 16, (p) => {
+                for (let y = 6; y <= 15; y++) { p(7, y, '#6b4a2a'); p(8, y, '#8a6a3c'); }
+                p(7, 4, '#ffb347'); p(8, 4, '#ff8c1a'); p(7, 5, '#ff8c1a'); p(8, 5, '#e06a12');
+                p(6, 5, '#ffb347'); p(9, 5, '#ffd166'); p(7, 3, '#ffe9a8'); p(8, 3, '#ffd166');
+                p(7, 2, '#fff3c0'); p(8, 2, '#ffca55');
+            }, false);
+            TEX_TOCHA = tochaTex;
+
+            // ----- Porta (textura 16x32: moldura + 4 painéis + maçaneta) -----
+            TEX_PORTA = pixTex(16, 32, (p) => {
+                const r = criarPRNG(611);
+                for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
+                    const moldura = x <= 1 || x >= 14 || y <= 1 || y >= 30;
+                    const pa = (x >= 3 && x <= 12) && ((y >= 3 && y <= 13) || (y >= 18 && y <= 28));
+                    let c;
+                    if (moldura) c = x % 2 ? 0x8a6a3c : 0x7a5a32;
+                    else if (pa) {
+                        const borda = x === 3 || y === 3 || y === 18;
+                        const claro = x === 12 || y === 13 || y === 28;
+                        c = borda ? 0x6d5230 : claro ? 0xc29a62 : (x % 3 === 0 ? 0xa57c48 : 0x9a7040);
+                    } else c = x % 4 === 2 ? 0x8f6a3a : 0xa97f4b;
+                    p(x, y, variaCor(c, 0.12, r));
+                }
+                for (let y = 15; y <= 16; y++) for (let x = 11; x <= 12; x++) p(x, y, y === 15 ? '#f6dc78' : '#d9ae32');
+            }, false);
+            // ----- Cama: coberta vermelha e lençol branco (a madeira vem das tábuas) -----
+            TEX_CAMA = {
+                manta: tex16(641, (x, y, r) => {
+                    let c = 0xc23a3a;
+                    if (y % 5 === 0) c = 0xa62d2d; else if ((x + y) % 7 === 0) c = 0xd45050;
+                    return variaCor(c, 0.1, r);
+                }),
+                branco: tex16(651, (x, y, r) => variaCor(y % 6 === 5 ? 0xd8d4cc : 0xf4f2ec, 0.06, r)),
+                madeira: null
+            };
+
             // ----- Terra arada -----
             const aradoPx = (x, y, r) => {
                 const sulco = (y % 4) < 2;
@@ -1023,17 +1179,33 @@
                 lama: L(lama),
                 pedra_negra: L(negra),
                 tabua_escura: L(tabuaTex(451, 0x4a3320, 0x2a1c10)),
+                minerio_carvao: L(minerioCarvaoTex),
+                minerio_ferro: L(minerioFerroTex),
+                minerio_ouro: L(minerioOuroTex),
+                tocha: L(tochaTex),
                 arado: [terra, terra, aradoTopo, terra, terra, terra].map(L),
                 arado_semente: [terra, terra, aradoSementeTopo, terra, terra, terra].map(L),
             };
 
-            MAT.arado_s1 = MAT.arado; MAT.arado_s2 = MAT.arado; MAT.arado_s3 = MAT.arado;   // plantação: o trigo é um sprite em cima
+            MAT.arado_s1 = MAT.arado; MAT.arado_s2 = MAT.arado; MAT.arado_s3 = MAT.arado;
+            MAT.porta = new THREE.MeshLambertMaterial({ map: TEX_PORTA });
+            {   // porta espelhada: mesma textura invertida na horizontal (a maçaneta fica do lado do meio, junto da outra porta)
+                const tpe = TEX_PORTA.clone();
+                tpe.wrapS = THREE.RepeatWrapping;
+                tpe.repeat.x = -1; tpe.offset.x = 1;
+                tpe.needsUpdate = true;
+                MAT.portaEsp = new THREE.MeshLambertMaterial({ map: tpe });
+            }
+            TEX_CAMA.madeira = MAT.tabua.map;   // plantação: o trigo é um sprite em cima
 
             BLOCOS = {};
             TIPOS.concat(EXTRAS).forEach(t => {
                 const m = Array.isArray(MAT[t]) ? MAT[t][0] : MAT[t];
                 BLOCOS[t] = { nome: INFO[t][0], dureza: INFO[t][1], cor: INFO[t][2], icone: m.map.image.toDataURL() };
             });
+
+            BLOCOS.porta = { nome: 'Porta', dureza: 0.8, cor: 0xa97f4b, icone: '' };
+            BLOCOS.cama = { nome: 'Cama', dureza: 0.6, cor: 0xc23a3a, icone: '' };
 
             // ----- Plantas (cruzadas, com vento) -----
             const planta = (seed, desenhar) => pixTex(16, 16, (p) => desenhar(p, criarPRNG(seed)), false);
@@ -1100,6 +1272,15 @@
             );
             // ícones/sprites dos itens novos
             const px16 = (fn) => pixTex(16, 16, fn, false);
+            // ícones desenhados em grade 16x16 (ferramentas em pé, no mesmo estilo dos modelos voxel)
+            const PAL16 = {
+                A: '#f2f6f8', M: '#c9d1d6', m: '#9aa5ad', n: '#76828a', o: '#2a2622', Y: '#f6dc78', y: '#d9ae32',
+                h: '#a57c48', H: '#6b4a2a', k: '#43291a', l: '#8a4a2a', L: '#5e301c', t: '#3a2a1c', T: '#241810',
+                '1': '#fff3c0', '2': '#ffd166', '3': '#ffa63d', '4': '#e8641a'
+            };
+            const grade16 = (linhas) => px16((p) => {
+                linhas.forEach((ln, y) => { for (let x = 0; x < 16; x++) { const c = ln[x]; if (c && c !== '.') p(x, y, PAL16[c]); } });
+            });
             TEX_ITENS = {
                 semente: px16((p) => {
                     [[3, 10], [8, 7], [11, 11], [5, 13], [10, 4], [6, 7], [2, 5], [12, 8]].forEach(([x, y]) => {
@@ -1119,13 +1300,128 @@
                 graveto: px16((p) => {
                     for (let i = 0; i < 10; i++) { p(3 + i, 13 - i, '#8a6a3c'); p(4 + i, 13 - i, '#5b4329'); }
                 }),
-                enxada: px16((p) => {
-                    for (let i = 0; i < 10; i++) { p(2 + i, 14 - i, '#7a5a30'); p(3 + i, 14 - i, '#4f3820'); }
-                    for (let x = 8; x <= 13; x++) { p(x, 3, '#c49a5e'); p(x, 4, '#8c6a3c'); }
-                    p(13, 5, '#8c6a3c'); p(13, 6, '#6b4f2c');
-                })
+                enxada: grade16([
+                    '.oooooooooooo...', '.oAAMMMMmmhHo...', '.onMo.....hH....', '.onMo.....Hh....', '.oooo.....hH....',
+                    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => i % 2 ? '..........Hk....' : '..........hH....'),
+                    '..........kk....'
+                ]),
+                carne: px16((p) => {
+                    // carne crua: contorno escuro, miolo rosado, gordura clara e osso
+                    for (let y = 3; y <= 12; y++) for (let x = 3; x <= 12; x++) {
+                        if ((x === 3 || x === 12) && (y === 3 || y === 12)) continue;
+                        p(x, y, '#7d2b26');
+                    }
+                    for (let y = 4; y <= 11; y++) for (let x = 4; x <= 11; x++) {
+                        const n = h2(x, y, 77);
+                        p(x, y, n < 0.3 ? '#d76a5c' : n < 0.62 ? '#c25147' : '#a83a34');
+                    }
+                    [[6, 5], [7, 5], [9, 7], [10, 7], [5, 9], [6, 9], [8, 10]].forEach(([x, y]) => p(x, y, '#efd9cf'));
+                    for (let x = 1; x <= 4; x++) p(x, 11, '#e8e2d4');
+                    p(1, 12, '#cfc7b6'); p(2, 12, '#cfc7b6'); p(3, 12, '#cfc7b6'); p(4, 12, '#cfc7b6');
+                }),
+                espada: grade16([
+                    '.......oo.......',
+                    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(() => '......oAmo......'),
+                    '....oyYYYYyo....', '....oooooooo....', '......olLo......', '......oLlo......', '......oyyo......'
+                ]),
+                picareta: grade16([
+                    '....oooooooo....', '..ooAAAMmmmmoo..', '.oAMm..hH..mmMo.', 'oAMm...hH....mMo', 'on.....hH.....no',
+                    ...[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map(i => i % 2 ? '.......Hk.......' : '.......hH.......'),
+                    '.......kk.......'
+                ]),
+                pa: grade16([
+                    '......oooo......', '.....oAAMmo.....', '.....oAMMmo.....', '.....oAMMmo.....', '.....oAMMmo.....',
+                    '.....oMMmmo.....', '......oMmo......', '.......oo.......',
+                    ...[0, 1, 2, 3, 4].map(i => i % 2 ? '.......Hh.......' : '.......hH.......'),
+                    '.....hhhHkk.....', '.......Hk.......', '.......kk.......'
+                ]),
+                lanca: grade16([
+                    '.......oo.......', '......oAMo......', '.....oAMMmo.....', '.....oAMMmo.....', '......oMmo......',
+                    '.......nm.......', '.......yY.......',
+                    ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => i % 2 ? '.......Hh.......' : '.......hH.......'),
+                    '.......kk.......'
+                ]),
+                tocha: grade16([
+                    '.......11.......', '......1221......', '.....123321.....', '.....234432.....', '.....234432.....',
+                    '......3443......', '.....ottTTo.....', '......tTTt......', '.......hH.......',
+                    ...[0, 1, 2, 3, 4, 5].map(i => i % 2 ? '......oHhk......' : '......ohHk......'),
+                    '.......kk.......'
+                ]),
+                carvao: px16((p) => {
+                    for (let y = 4; y <= 11; y++) for (let x = 3; x <= 12; x++) {
+                        const borda = (x === 3 || x === 12 || y === 4 || y === 11);
+                        p(x, y, borda ? '#0d0d0d' : (h2(x, y, 55) < 0.4 ? '#2c2c2c' : '#1b1b1b'));
+                    }
+                }),
+                ferro: px16((p) => {
+                    for (let y = 5; y <= 10; y++) for (let x = 2; x <= 13; x++) {
+                        const borda = (y === 5 || y === 10);
+                        p(x, y, borda ? '#e2e2e2' : (x < 5 ? '#a8a8a8' : '#c4c4c4'));
+                    }
+                }),
+                ouro: px16((p) => {
+                    for (let y = 5; y <= 10; y++) for (let x = 2; x <= 13; x++) {
+                        const borda = (y === 5 || y === 10);
+                        p(x, y, borda ? '#ffe98a' : (x < 5 ? '#d9ae32' : '#f0cb4c'));
+                    }
+                }),
+                la: px16((p) => {
+                    // novelo de lã: bolinha branca fofa com sombras suaves
+                    for (let y = 3; y <= 12; y++) for (let x = 3; x <= 12; x++) {
+                        if ((x === 3 || x === 12) && (y === 3 || y === 12)) continue;
+                        const sombra = (x + y * 2 + (x * y) % 3) % 5 === 0;
+                        const baixo = y >= 10 || x >= 11;
+                        p(x, y, sombra ? '#d4d0c8' : baixo ? '#dcd8d0' : '#f5f3ee');
+                    }
+                    for (const [x, y] of [[5, 4], [8, 4], [4, 7], [10, 7], [6, 9]]) p(x, y, '#ffffff');
+                }),
+                cama: px16((p) => {
+                    for (let y = 6; y <= 10; y++) for (let x = 1; x <= 14; x++) {       // travesseiro + coberta vermelha
+                        if (x <= 4) p(x, y, (y === 6 || x === 1) ? '#e8e8e8' : '#f6f6f6');
+                        else p(x, y, y === 6 ? '#d94a4a' : (x + y) % 4 === 0 ? '#a62d2d' : '#c23a3a');
+                    }
+                    for (let x = 1; x <= 14; x++) p(x, 11, '#7a5230');                    // estrado de madeira
+                    for (let x = 1; x <= 14; x++) p(x, 12, '#a97f4b');
+                    for (const x of [1, 2, 13, 14]) { p(x, 13, '#6d5230'); p(x, 14, '#6d5230'); }   // pés
+                }),
+                minerio_ferro: minerioFerroTex,
+                minerio_ouro: minerioOuroTex
             };
+            // ícones novos: cama (vista lateral) e porta
+            TEX_ITENS.cama = px16((p) => {
+                for (let y = 4; y <= 13; y++) for (let x = 1; x <= 3; x++) p(x, y, (x === 1 || y === 4) ? '#6d5230' : (x === 3 ? '#a97f4b' : '#8a6a3c'));   // cabeceira
+                for (let y = 8; y <= 13; y++) for (let x = 13; x <= 14; x++) p(x, y, x === 14 ? '#6d5230' : '#8a6a3c');                                       // peseira
+                for (let y = 9; y <= 11; y++) for (let x = 4; x <= 12; x++) p(x, y, y === 9 ? '#ffffff' : '#e4e1da');                                          // colchão
+                for (let x = 4; x <= 6; x++) { p(x, 8, '#ffffff'); p(x, 9, '#f6f4ee'); }                                                                       // travesseiro
+                for (let y = 8; y <= 11; y++) for (let x = 7; x <= 12; x++) p(x, y, y === 8 ? '#e86a6a' : (y === 11 ? '#8f2424' : ((x + y) % 3 === 0 ? '#b83232' : '#cf4040')));   // coberta
+                for (let x = 1; x <= 14; x++) { p(x, 12, '#a97f4b'); p(x, 13, '#6d5230'); }                                                                     // estrado
+                for (const x of [1, 2, 13, 14]) { p(x, 14, '#3a2a1c'); p(x, 15, '#3a2a1c'); }                                                                   // pés
+            });
+            TEX_ITENS.porta = px16((p) => {
+                for (let y = 1; y <= 14; y++) for (let x = 4; x <= 11; x++) {
+                    const borda = (x === 4 || x === 11 || y === 1 || y === 14);
+                    const painel = (x >= 6 && x <= 9) && ((y >= 3 && y <= 6) || (y >= 9 && y <= 12));
+                    p(x, y, borda ? '#5b4329' : painel ? '#8a6a3c' : '#a97f4b');
+                }
+                p(10, 8, '#f6dc78'); p(10, 9, '#d9ae32');
+            });
             GEO_CRUZ = cruzGeo(1, 1);
+        }
+
+        // ---------- Tocha na mão (modelo simples com chama acesa) ----------
+        function modeloTochaMao(semProfundidade) {
+            const mc = new THREE.MeshLambertMaterial({ color: 0x6b4a2a });
+            const mf = new THREE.MeshBasicMaterial({ color: 0xffc14d });
+            if (semProfundidade) { mc.depthTest = false; mf.depthTest = false; }
+            const g = new THREE.Group();
+            // a origem do grupo é o punho: a chama fica na ponta (y negativo = frente da mão)
+            const cabo = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.42, 0.1), mc);
+            cabo.position.y = 0.16;
+            const chama = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 0.16), mf);
+            chama.position.y = -0.12;
+            g.add(cabo, chama);
+            if (semProfundidade) g.traverse(o => { if (o.isMesh) o.renderOrder = 1000; });
+            return g;
         }
 
         // ============================================================
@@ -1211,7 +1507,8 @@
             root.add(cabeca);
             if (fem) root.add(caixa(0.68, 1.1, 0.28, M(lisa(8, 8, cab)), 0, 2.0, -0.28));
 
-            root.scale.setScalar(ESCALA_PERSONAGEM);      // mesma altura do Minecraft (1,8 bloco)
+            root.scale.setScalar(ESCALA_PERSONAGEM);
+            root.rotation.order = 'YXZ';                 // permite deitar o boneco (rotação em X) e girar para a direção da cama      // mesma altura do Minecraft (1,8 bloco)
 
             return {
                 mesh: root, armL: pArmL, armR: pArmR, legL: pLegL, legR: pLegR, head: cabeca, corpo,
@@ -1220,29 +1517,226 @@
             };
         }
 
-        // ---------- Enxada de madeira (modelo de caixas; substitui o braço) ----------
-        let ENX = null;
-        function modeloEnxada(semProfundidade) {
-            if (!ENX) {
-                ENX = {
-                    geoCabo: new THREE.BoxGeometry(0.1, 1.1, 0.1),
-                    geoBarra: new THREE.BoxGeometry(0.12, 0.1, 0.46),
-                    geoLamina: new THREE.BoxGeometry(0.12, 0.26, 0.1),
-                    matCabo: new THREE.MeshLambertMaterial({ color: 0x6b4a2a }),
-                    matMadeira: new THREE.MeshLambertMaterial({ color: 0xb48a52 })
-                };
-                ENX.matCaboFP = ENX.matCabo.clone(); ENX.matCaboFP.depthTest = false;
-                ENX.matMadeiraFP = ENX.matMadeira.clone(); ENX.matMadeiraFP.depthTest = false;
+        // ============================================================
+        // FERRAMENTAS EM VOXEL — modelos 3D detalhados, em pé, com pixels extrudados
+        // (cada pixel vira um cubinho; só as faces visíveis são geradas; um único mesh por ferramenta)
+        // ============================================================
+        const VOX_COR = {
+            A: 0xf2f6f8, M: 0xc9d1d6, m: 0xa2adb4, n: 0x76828a,      // metal: brilho, claro, médio, escuro
+            Y: 0xf6dc78, y: 0xd9ae32,                                 // ouro (guarda da espada, amarra da lança)
+            h: 0x9a7444, H: 0x6b4a2a, k: 0x4a3018,                    // madeira: clara, média, escura
+            l: 0x8a4a2a, L: 0x5e301c,                                 // couro do cabo
+            t: 0x3a2a1c, T: 0x241810,                                 // cabeça carbonizada da tocha
+            '1': 0xfff3c0, '2': 0xffd166, '3': 0xffa63d, '4': 0xe8641a   // chama (brilha sozinha)
+        };
+        const VOX_BRILHO = '1234';
+        // linhas de cima para baixo; "grip" = linha onde fica a mão; "cx" = coluna central (eixo do cabo)
+        const VOX_DEFS = {
+            espada: {
+                vs: 0.055, d: 2, grip: 18, seed: 3, linhas: [
+                    '....A....',
+                    '...MAm...', '...MAm...', '...MAm...', '...MAm...', '...MAm...', '...MAm...',
+                    '...MAm...', '...MAm...', '...MAm...', '...MAm...', '...MAm...',
+                    '..MMAmm..', '..MMAmm..',
+                    'yYYYYYYYy', '.yyyyyyy.',
+                    '...lLl...', '...LlL...', '...lLl...', '...LlL...',
+                    '..yYYYy..', '...yyy...'
+                ]
+            },
+            picareta: {
+                vs: 0.055, d: 3, grip: 14, seed: 5, linhas: [
+                    '....nAAAn....',
+                    '..nAMMMMMAn..',
+                    '.nMmmmmmmmMn.',
+                    'nMm..hHk..mMn',
+                    'nn...hHk...nn',
+                    '.....hHk.....', '.....hhH.....', '.....hHk.....', '.....Hhk.....',
+                    '.....hHk.....', '.....hhH.....', '.....hHk.....', '.....Hhk.....',
+                    '.....hHk.....', '.....hhH.....', '.....hHk.....', '.....Hhk.....',
+                    '.....hHk.....', '.....hhH.....', '.....kkk.....'
+                ]
+            },
+            pa: {
+                vs: 0.055, d: 3, grip: 17, seed: 7, linhas: [
+                    '.nMMMn.',
+                    'nMAMMmn', 'nMAMMmn', 'nMMMMmn', 'nMMMmmn',
+                    '.nMmmn.', '..nmn..', '..nmn..',
+                    '..hHk..', '..hhH..', '..hHk..', '..Hhk..', '..hHk..', '..hhH..',
+                    '..hHk..', '..Hhk..', '..hHk..', '..hhH..',
+                    'hhhHkkk', '..hHk..'
+                ]
+            },
+            enxada: {
+                vs: 0.055, d: 3, grip: 15, cx: 5, seed: 9, linhas: [
+                    'nmMMMAn..',
+                    'nmmmkHh..',
+                    'nm..kHh..',
+                    'nM..kHh..',
+                    'n...kHh..',
+                    '....kHh..', '....Hhh..', '....kHh..', '....kHH..',
+                    '....kHh..', '....Hhh..', '....kHh..', '....kHH..',
+                    '....kHh..', '....Hhh..', '....kHh..', '....kHH..',
+                    '....kHh..', '....kkk..'
+                ]
+            },
+            lanca: {
+                vs: 0.05, d: 2, grip: 20, seed: 11, linhas: [
+                    '..MM..',
+                    '.nAMm.', '.nAMm.',
+                    'nMAMmm', 'nMAMmm',
+                    '.nMMm.', '..nm..',
+                    '..yY..',
+                    '..hH..', '..Hh..', '..hH..', '..Hh..', '..hH..', '..Hh..', '..hH..', '..Hh..',
+                    '..hH..', '..Hh..', '..hH..', '..Hh..', '..hH..', '..Hh..', '..hH..', '..Hh..',
+                    '..hH..', '..Hh..', '..hH..', '..Hh..', '..hH..', '..Hh..',
+                    '..kk..'
+                ]
+            },
+            tocha: {
+                vs: 0.05, d: 3, grip: 10, seed: 13, linhas: [
+                    '..1..',
+                    '.121.',
+                    '.232.',
+                    '23432',
+                    '.343.',
+                    '.tTt.',
+                    '.hHk.', '.Hhk.', '.hHk.', '.Hhk.', '.hHk.', '.Hhk.', '.hHk.', '.Hhk.',
+                    '.kkk.'
+                ]
             }
-            const mc = semProfundidade ? ENX.matCaboFP : ENX.matCabo;
-            const mm = semProfundidade ? ENX.matMadeiraFP : ENX.matMadeira;
+        };
+        // cantos de cada face (cubo unitário), no sentido anti-horário visto de fora
+        const VOX_FACES = [
+            { n: [1, 0, 0], c: [[1, 0, 1], [1, 0, 0], [1, 1, 0], [1, 1, 1]] },
+            { n: [-1, 0, 0], c: [[0, 0, 0], [0, 0, 1], [0, 1, 1], [0, 1, 0]] },
+            { n: [0, 1, 0], c: [[0, 1, 1], [1, 1, 1], [1, 1, 0], [0, 1, 0]] },
+            { n: [0, -1, 0], c: [[0, 0, 0], [1, 0, 0], [1, 0, 1], [0, 0, 1]] },
+            { n: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]] },
+            { n: [0, 0, -1], c: [[1, 0, 0], [0, 0, 0], [0, 1, 0], [1, 1, 0]] }
+        ];
+        const VOX_GEOS = {};
+        const VOX_MATS = {};
+
+        function construirVoxGeo(def) {
+            const rows = def.linhas, H = rows.length, D = def.d, vs = def.vs;
+            let W = 0;
+            rows.forEach(r => { if (r.length > W) W = r.length; });
+            const cx = def.cx !== undefined ? def.cx : (W - 1) / 2;
+            const cell = (c, r, k) => {
+                if (r < 0 || r >= H || c < 0 || k < 0 || k >= D) return '.';
+                const ch = rows[r][c];
+                return ch === undefined ? '.' : ch;
+            };
+            const mk = () => ({ p: [], n: [], c: [] });
+            const lit = mk(), glow = mk();
+            const col = new THREE.Color();
+            for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) for (let k = 0; k < D; k++) {
+                const ch = cell(c, r, k);
+                if (ch === '.') continue;
+                const alvo = VOX_BRILHO.indexOf(ch) >= 0 ? glow : lit;
+                const f = 0.93 + h2(c * 7 + k * 3, r * 5, def.seed) * 0.14;
+                col.setHex(VOX_COR[ch]).multiplyScalar(f);
+                for (const fc of VOX_FACES) {
+                    if (cell(c + fc.n[0], r - fc.n[1], k + fc.n[2]) !== '.') continue;
+                    const v = fc.c.map(q => [
+                        (c - cx + q[0] - 0.5) * vs,
+                        (def.grip - r + q[1] - 0.5) * vs,
+                        (k - (D - 1) / 2 + q[2] - 0.5) * vs
+                    ]);
+                    for (const i of [0, 1, 2, 0, 2, 3]) {
+                        alvo.p.push(v[i][0], v[i][1], v[i][2]);
+                        alvo.n.push(fc.n[0], fc.n[1], fc.n[2]);
+                        alvo.c.push(col.r, col.g, col.b);
+                    }
+                }
+            }
+            const geo = (a) => {
+                if (!a.p.length) return null;
+                const g = new THREE.BufferGeometry();
+                g.setAttribute('position', new THREE.Float32BufferAttribute(a.p, 3));
+                g.setAttribute('normal', new THREE.Float32BufferAttribute(a.n, 3));
+                g.setAttribute('color', new THREE.Float32BufferAttribute(a.c, 3));
+                return g;
+            };
+            return { lit: geo(lit), glow: geo(glow) };
+        }
+        function voxMats(fp) {
+            const k = fp ? 'fp' : 'n';
+            if (!VOX_MATS[k]) {
+                const lit = new THREE.MeshLambertMaterial({ vertexColors: true });
+                const glow = new THREE.MeshBasicMaterial({ vertexColors: true });
+                if (fp) { lit.depthTest = false; glow.depthTest = false; }   // mão em 1ª pessoa: sempre por cima
+                VOX_MATS[k] = { lit, glow };
+            }
+            return VOX_MATS[k];
+        }
+        function modeloVox(nome, semProfundidade) {
+            if (!VOX_GEOS[nome]) VOX_GEOS[nome] = construirVoxGeo(VOX_DEFS[nome]);
+            const geos = VOX_GEOS[nome], mats = voxMats(semProfundidade);
             const g = new THREE.Group();
-            const cabo = new THREE.Mesh(ENX.geoCabo, mc); cabo.position.set(0, -0.75, 0);
-            const bar = new THREE.Mesh(ENX.geoBarra, mm); bar.position.set(0, -1.28, 0.19);
-            const lam = new THREE.Mesh(ENX.geoLamina, mm); lam.position.set(0, -1.41, 0.37);
-            g.add(cabo, bar, lam);
+            if (geos.lit) g.add(new THREE.Mesh(geos.lit, mats.lit));
+            if (geos.glow) g.add(new THREE.Mesh(geos.glow, mats.glow));
             if (semProfundidade) g.traverse(o => { if (o.isMesh) o.renderOrder = 1000; });
             return g;
+        }
+        function modeloEnxada(sp) { return modeloVox('enxada', sp); }
+        function modeloEspada(sp) { return modeloVox('espada', sp); }
+        function modeloPicareta(sp) { return modeloVox('picareta', sp); }
+        function modeloPa(sp) { return modeloVox('pa', sp); }
+        function modeloLanca(sp) { return modeloVox('lanca', sp); }
+        function modeloTochaMao(sp) { return modeloVox('tocha', sp); }
+
+        // Coloca a ferramenta na mão, EM PÉ (lâmina/cabeça para cima, cabo na mão).
+        // Os modelos são desenhados na vertical (+Y = ponta). No braço (que aponta para -Y), girar -90° em X
+        // faz a ponta subir quando o braço está esticado para frente (1ª pessoa); em 3ª pessoa o braço pende,
+        // então só inclinamos um pouco para frente.
+        // primeira = true → mão presa à câmera (frente = -Z). false → personagem em 3ª pessoa (frente = +Z).
+        function segurarFerramenta(g, tipo, primeira) {
+            // a picareta gira 90° em volta do próprio cabo: a cabeça aponta para frente em vez de ficar de lado
+            const giro = tipo === 'picareta' ? Math.PI / 2 : 0;
+            if (primeira) {
+                g.position.set(0, -0.84, -0.02);
+                g.rotation.set(-Math.PI / 2 + 0.05, 0.38 + giro, -0.04);   // ry mostra a lateral (volume 3D)
+            } else {
+                g.position.set(0, -0.88, 0.13);
+                g.rotation.set(tipo === 'tocha' ? 0.35 : 0.55, giro, -0.04);
+            }
+        }
+
+        // ============================================================
+        // CAMA (2 blocos de comprimento) e PORTA — modelos 3D
+        // ============================================================
+        const PORTA_GEO = new THREE.BoxGeometry(1, 2, 0.16);
+        const PORTA_ITEM_GEO = new THREE.BoxGeometry(0.5, 1, 0.1);
+        const _bedGeos = {};
+        const bedGeo = (w, h, l) => _bedGeos[w + ',' + h + ',' + l] || (_bedGeos[w + ',' + h + ',' + l] = new THREE.BoxGeometry(w, h, l));
+        const CAMA_MATS = {};
+        // origem no centro do volume; +Z = lado da cabeceira. semProf = desenhada por cima (mão em 1ª pessoa)
+        function modeloCama(semProf) {
+            const k = semProf ? 'fp' : 'n';
+            if (!CAMA_MATS[k]) {
+                const mk = (map) => { const m = new THREE.MeshLambertMaterial({ map }); if (semProf) m.depthTest = false; return m; };
+                CAMA_MATS[k] = { manta: mk(TEX_CAMA.manta), branco: mk(TEX_CAMA.branco), madeira: mk(TEX_CAMA.madeira) };
+            }
+            const M = CAMA_MATS[k];
+            const outer = new THREE.Group();
+            const g = new THREE.Group();
+            g.position.y = -0.375;
+            outer.add(g);
+            const caixa = (w, h, l, mat, x, y, z) => {
+                const m = new THREE.Mesh(bedGeo(w, h, l), mat);
+                m.position.set(x, y, z);
+                if (semProf) m.renderOrder = 1000;
+                g.add(m);
+            };
+            for (const sx of [-1, 1]) for (const sz of [-1, 1]) caixa(0.12, 0.2, 0.12, M.madeira, sx * 0.44, 0.1, sz * 0.94);   // pés
+            caixa(1.0, 0.12, 2.0, M.madeira, 0, 0.26, 0);            // estrado
+            caixa(0.94, 0.2, 1.94, M.branco, 0, 0.42, 0);            // colchão
+            caixa(0.98, 0.1, 1.32, M.manta, 0, 0.55, -0.31);         // coberta vermelha
+            caixa(0.66, 0.12, 0.4, M.branco, 0, 0.58, 0.72);         // travesseiro
+            caixa(1.0, 0.55, 0.1, M.madeira, 0, 0.47, 0.95);         // cabeceira
+            caixa(1.0, 0.34, 0.08, M.madeira, 0, 0.37, -0.96);       // peseira
+            return outer;
         }
 
         function descartarPersonagem(p) {
@@ -1284,22 +1778,35 @@
                     s.start(0, Math.random() * 2);
                     return s;
                 };
+                const ambG = ctx.createGain(); ambG.gain.value = 1; ambG.connect(master);   // volume do som ambiente (abaixa na chuva)
                 const f1 = ctx.createBiquadFilter(); f1.type = 'bandpass'; f1.frequency.value = 500; f1.Q.value = 0.8;
                 const g1 = ctx.createGain(); g1.gain.value = 0.12;
-                mkNoise().connect(f1); f1.connect(g1); g1.connect(master);
+                mkNoise().connect(f1); f1.connect(g1); g1.connect(ambG);
 
                 const f2 = ctx.createBiquadFilter(); f2.type = 'lowpass'; f2.frequency.value = 150;
                 const g2 = ctx.createGain(); g2.gain.value = 0.45;
-                mkNoise().connect(f2); f2.connect(g2); g2.connect(master);
+                mkNoise().connect(f2); f2.connect(g2); g2.connect(ambG);
 
                 const fd = ctx.createBiquadFilter(); fd.type = 'lowpass'; fd.frequency.value = 180;
                 const gd = ctx.createGain(); gd.gain.value = 0.035;
                 const o1 = ctx.createOscillator(); o1.type = 'sine'; o1.frequency.value = 43;
                 const o2 = ctx.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 64.6;
-                o1.connect(fd); o2.connect(fd); fd.connect(gd); gd.connect(master);
+                o1.connect(fd); o2.connect(fd); fd.connect(gd); gd.connect(ambG);
                 o1.start(); o2.start();
 
-                audio = { ctx, master, buf, g1, f1, ultimoVento: 0 };
+                // chuva: ruído branco filtrado (começa mudo; atualizarChuva controla o volume)
+                const lenC = ctx.sampleRate * 2;
+                const bufC = ctx.createBuffer(1, lenC, ctx.sampleRate);
+                const dC = bufC.getChannelData(0);
+                for (let i = 0; i < lenC; i++) dC[i] = Math.random() * 2 - 1;
+                const sC = ctx.createBufferSource(); sC.buffer = bufC; sC.loop = true;
+                const fcH = ctx.createBiquadFilter(); fcH.type = 'highpass'; fcH.frequency.value = 900;
+                const fcL = ctx.createBiquadFilter(); fcL.type = 'lowpass'; fcL.frequency.value = 7000;
+                const gC = ctx.createGain(); gC.gain.value = 0;
+                sC.connect(fcH); fcH.connect(fcL); fcL.connect(gC); gC.connect(master);
+                sC.start(0, Math.random());
+
+                audio = { ctx, master, buf, g1, f1, ultimoVento: 0, chuvaG: gC, chuvaF: fcL, ambG, chuvaVol: 0, chuvaFreq: 7000, chuvaInt: 0 };
                 agendarEventosSonoros();
             } catch (e) { audio = null; }
         }
@@ -1380,9 +1887,56 @@
             tom(430, 380, 0.45, 0.07);
             setTimeout(() => tom(420, 360, 0.6, 0.06), 650);
         }
+        // piado da coruja: "hu... hu-hu... huuuu" (curto = alarme "hu-hu"); pan = -1 (esquerda) … 1 (direita)
+        function sfxCoruja(vol, pan, curto) {
+            if (!audioOk() || vol < 0.003) return;
+            const { ctx, master } = audio;
+            const t0 = ctx.currentTime + 0.02;
+            const saida = ctx.createGain(); saida.gain.value = vol;
+            const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+            saida.connect(lp);
+            if (ctx.createStereoPanner) {
+                const pn = ctx.createStereoPanner(); pn.pan.value = Math.max(-1, Math.min(1, pan || 0));
+                lp.connect(pn); pn.connect(master);
+            } else lp.connect(master);
+            const nota = (ini, dur, f0, f1) => {
+                const o = ctx.createOscillator(); o.type = 'sine';
+                o.frequency.setValueAtTime(f0, t0 + ini); o.frequency.exponentialRampToValueAtTime(f1, t0 + ini + dur);
+                const o2 = ctx.createOscillator(); o2.type = 'triangle';
+                o2.frequency.setValueAtTime(f0 * 2, t0 + ini); o2.frequency.exponentialRampToValueAtTime(f1 * 2, t0 + ini + dur);
+                const g = ctx.createGain();
+                g.gain.setValueAtTime(0.0001, t0 + ini);
+                g.gain.linearRampToValueAtTime(1, t0 + ini + Math.min(0.06, dur * 0.3));
+                g.gain.exponentialRampToValueAtTime(0.0001, t0 + ini + dur);
+                const g2 = ctx.createGain(); g2.gain.value = 0.22;
+                o.connect(g); o2.connect(g2); g2.connect(g); g.connect(saida);
+                o.start(t0 + ini); o2.start(t0 + ini);
+                o.stop(t0 + ini + dur + 0.05); o2.stop(t0 + ini + dur + 0.05);
+            };
+            if (curto) { nota(0, 0.16, 470, 400); nota(0.24, 0.16, 470, 400); }
+            else { nota(0, 0.2, 420, 380); nota(0.45, 0.16, 430, 380); nota(0.68, 0.16, 430, 380); nota(1.0, 0.75, 400, 300); }
+        }
+        // "cri-cri" do grilo: dois grupos de pulsos rápidos num tom agudo
+        function sfxGrilo(vol) {
+            if (!audioOk() || vol < 0.004) return;
+            const { ctx, master } = audio;
+            const t = ctx.currentTime + 0.01;
+            const o = ctx.createOscillator();
+            o.type = 'sine';
+            o.frequency.value = 4200 + Math.random() * 250;
+            const g = ctx.createGain();
+            g.gain.setValueAtTime(0.0001, t);
+            for (let grp = 0; grp < 2; grp++) for (let i = 0; i < 4; i++) {
+                const ts = t + grp * 0.24 + i * 0.034;
+                g.gain.setValueAtTime(vol, ts);
+                g.gain.linearRampToValueAtTime(0.0001, ts + 0.026);
+            }
+            o.connect(g); g.connect(master);
+            o.start(t); o.stop(t + 0.6);
+        }
         function agendarEventosSonoros() {
             setTimeout(() => {
-                if (audioOk()) { (DIA_V > 0.5 || Math.random() < 0.55) ? criak() : coruja(); }
+                if (audioOk() && Math.random() > (audio.chuvaInt || 0)) { (DIA_V > 0.5 || Math.random() < 0.55) ? criak() : coruja(); }
                 agendarEventosSonoros();
             }, 9000 + Math.random() * 25000);
         }
@@ -1405,13 +1959,30 @@
             add(k, mat4) {
                 if (this.mapa.has(k)) this.remove(k);
                 const m = this.mesh;
-                if (m.count >= this.cap) return false;
-                const i = m.count++;
-                m.setMatrixAt(i, mat4);
+                if (m.count >= this.cap) this.crescer();   // antes: bloco simplesmente não era criado (ficava invisível)
+                const m2 = this.mesh;
+                const i = m2.count++;
+                m2.setMatrixAt(i, mat4);
                 this.donos[i] = k;
                 this.mapa.set(k, i);
                 this.sujo = true;
                 return true;
+            }
+            crescer() {
+                const velho = this.mesh;
+                const novoCap = this.cap * 2;
+                const n = new THREE.InstancedMesh(velho.geometry, velho.material, novoCap);
+                n.instanceMatrix.array.set(velho.instanceMatrix.array);
+                n.count = velho.count;
+                n.frustumCulled = false;
+                n.visible = velho.visible;
+                n.renderOrder = velho.renderOrder;
+                n.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+                n.instanceMatrix.needsUpdate = true;
+                const pai = velho.parent;
+                if (pai) { pai.remove(velho); pai.add(n); }
+                velho.dispose();
+                this.mesh = n; this.cap = novoCap; this.sujo = true;
             }
             remove(k) {
                 const i = this.mapa.get(k);
@@ -1440,7 +2011,56 @@
             }
         }
 
+        // Agrupa as instâncias em regiões de 32x32 blocos, cada uma com sua própria malha.
+        // A cada quadro, regiões fora do campo de visão da câmera (atrás, nas laterais) ficam invisíveis
+        // e nem são enviadas à placa de vídeo; voltam assim que você olha para elas.
+        class ConjuntoRegioes {
+            constructor(geo, mat, cena, capIni, altMax) {
+                this.geo = geo; this.mat = mat; this.cena = cena; this.capIni = capIni; this.altMax = altMax;
+                this.subs = new Map(); this.onde = new Map();
+            }
+            add(k, mat4) {
+                if (this.onde.has(k)) this.remove(k);
+                const e = mat4.elements;
+                const rx = Math.floor(e[12]) >> 5, rz = Math.floor(e[14]) >> 5;
+                const rk = (rx + 32768) * 65536 + (rz + 32768);
+                let sub = this.subs.get(rk);
+                if (!sub) {
+                    sub = new Conjunto(this.geo, this.mat, this.capIni);
+                    sub.rk = rk;
+                    sub.box = new THREE.Box3(
+                        new THREE.Vector3(rx * 32 - 2, -3, rz * 32 - 2),
+                        new THREE.Vector3(rx * 32 + 34, this.altMax + 6, rz * 32 + 34));
+                    this.cena.add(sub.mesh);
+                    this.subs.set(rk, sub);
+                }
+                sub.add(k, mat4);
+                this.onde.set(k, sub);
+                return true;
+            }
+            remove(k) {
+                const sub = this.onde.get(k);
+                if (!sub) return;
+                sub.remove(k);
+                this.onde.delete(k);
+                if (sub.mesh.count === 0) {            // região vazia (chunks descarregados): libera a malha
+                    this.cena.remove(sub.mesh);
+                    sub.mesh.dispose();
+                    this.subs.delete(sub.rk);
+                }
+            }
+            flush(frustum) {
+                for (const sub of this.subs.values()) {
+                    sub.flush();
+                    sub.mesh.visible = sub.mesh.count > 0 && frustum.intersectsBox(sub.box);
+                }
+            }
+        }
+
+        let jogoIniciado = false;
         function iniciarJogo() {
+            if (jogoIniciado) return;      // evita iniciar duas vezes (auto-start + botão Jogar)
+            jogoIniciado = true;
             inicializarRecursos();
             iniciarAudio();
 
@@ -1476,8 +2096,6 @@
             const lua = new THREE.DirectionalLight(0x9db4e8, 0.7);
             lua.position.set(-30, 50, -20);
             scene.add(lua);
-            const lanterna = new THREE.PointLight(0xffc27a, 1.3, 18, 2);
-            scene.add(lanterna);
 
             // ---------- Céu: estrelas + lua ----------
             const ceu = new THREE.Group();
@@ -1518,20 +2136,37 @@
                 ceu.userData.lua = luaMesh;
             }
 
+            // ---------- Chuva (partículas + clima) ----------
+            const CHUVA_N = 900;
+            const chuvaGeo = new THREE.BufferGeometry();
+            const chuvaPos = new Float32Array(CHUVA_N * 3);
+            const chuvaVel = new Float32Array(CHUVA_N);
+            for (let i = 0; i < CHUVA_N; i++) {
+                chuvaPos[i * 3] = (Math.random() - 0.5) * 36;
+                chuvaPos[i * 3 + 1] = Math.random() * 26 - 6;
+                chuvaPos[i * 3 + 2] = (Math.random() - 0.5) * 36;
+                chuvaVel[i] = 16 + Math.random() * 10;
+            }
+            chuvaGeo.setAttribute('position', new THREE.BufferAttribute(chuvaPos, 3));
+            const chuvaMat = new THREE.PointsMaterial({
+                color: 0x9fc4e8, size: 0.16, transparent: true, opacity: 0.55, depthWrite: false, fog: false
+            });
+            const chuvaPts = new THREE.Points(chuvaGeo, chuvaMat);
+            chuvaPts.frustumCulled = false;
+            chuvaPts.visible = false;
+            scene.add(chuvaPts);
+            const chuvaFxEl = document.getElementById('chuva-fx');
+
             // ---------- Conjuntos de instâncias ----------
             const _m4 = new THREE.Matrix4();
             const _o3 = new THREE.Object3D();
             const conj = [null];
             TIPOS.forEach((t, i) => {
-                const c = new Conjunto(GEOS.bloco, MAT[t], CAPS[t] || 8000);
-                scene.add(c.mesh);
-                conj.push(c);
+                conj.push(new ConjuntoRegioes(GEOS.bloco, MAT[t], scene, 512, YMAX));
             });
             for (let i = 0; i < NPLANTAS; i++) conj.push(null);          // ids das plantas não são blocos
             EXTRAS.forEach(t => {
-                const c = new Conjunto(GEOS.bloco, MAT[t], 3000);
-                scene.add(c.mesh);
-                conj.push(c);
+                conj.push(new ConjuntoRegioes(GEOS.bloco, MAT[t], scene, 256, YMAX));
             });
             const renderId = new Map();
             const matPlanta = TEX_PLANTAS.map(tx => {
@@ -1539,31 +2174,203 @@
                 ventar(m, 'planta');
                 return m;
             });
-            const pconj = matPlanta.map((m, i) => {
-                const c = new Conjunto(GEO_CRUZ, m, i === 0 ? 24000 : 9000);
-                scene.add(c.mesh);
-                return c;
-            });
+            const pconj = matPlanta.map((m, i) => new ConjuntoRegioes(GEO_CRUZ, m, scene, 512, YMAX + 4));
+            const _mpv = new THREE.Matrix4(), _frus = new THREE.Frustum();
             const plantaTipo = new Map();
 
-            const numKey = (x, y, z) => ((x + 1024) * 2048 + (z + 1024)) * 256 + (y + 16);
-            const chaveOk = (x, y, z) => y >= -16 && y <= 239 && x > -1000 && x < 1000 && z > -1000 && z < 1000;
+            // ---------- Tochas: sprite em cruz + luz (bloco especial, não ocupa cubo) ----------
+            const matTocha = new THREE.MeshLambertMaterial({
+                map: TEX_TOCHA, alphaTest: 0.4, side: THREE.DoubleSide, emissive: 0xff9a2e, emissiveIntensity: 0.85
+            });
+            const tconj = new Conjunto(GEO_CRUZ, matTocha, 2000);
+            scene.add(tconj.mesh);
+            const tochaLuzes = new Map();          // chave do bloco -> PointLight (ou null)
+            // tochas colocadas: modelo voxel (mesmo da mão) + chama animada + luz tremulando + fagulhas e fumaça
+            const tochaObjs = new Map();           // chave do bloco -> { g, chama, luz, x, y, z, fase, nasc }
+            const ESC_TOCHA = 1.15;
+            let tochaNova = false;                 // true só quando o jogador acabou de acender (animação de acender)
+
+            // fagulhas (sobem e esfriam) e fumaça (sobe e cresce)
+            const fagGeo = new THREE.BoxGeometry(1, 1, 1);
+            const matBrasa = new THREE.MeshBasicMaterial({ color: 0xffb347 });
+            const matBrasa2 = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
+            const matFumaca = new THREE.MeshBasicMaterial({ color: 0x8c8c8c, transparent: true, opacity: 0.4, depthWrite: false });
+            const fagulhas = [], fagPool = [];
+            function emitirFagulha(x, y, z, fumaca) {
+                let p = fagPool.pop();
+                if (!p) {
+                    if (fagulhas.length >= 110) return;
+                    p = { mesh: new THREE.Mesh(fagGeo, matBrasa), vx: 0, vy: 0, vz: 0, vida: 0, vida0: 1, fumaca: false, tam: 0.04 };
+                    scene.add(p.mesh);
+                }
+                p.fumaca = fumaca;
+                p.mesh.material = fumaca ? matFumaca : (Math.random() < 0.35 ? matBrasa2 : matBrasa);
+                p.tam = fumaca ? 0.07 : 0.03 + Math.random() * 0.025;
+                p.vida = p.vida0 = fumaca ? 1.4 + Math.random() * 0.8 : 0.5 + Math.random() * 0.7;
+                p.vx = (Math.random() - 0.5) * (fumaca ? 0.12 : 0.35);
+                p.vz = (Math.random() - 0.5) * (fumaca ? 0.12 : 0.35);
+                p.vy = fumaca ? 0.45 + Math.random() * 0.2 : 0.7 + Math.random() * 0.9;
+                p.mesh.position.set(x + (Math.random() - 0.5) * 0.08, y, z + (Math.random() - 0.5) * 0.08);
+                p.mesh.scale.setScalar(p.tam);
+                p.mesh.visible = true;
+                fagulhas.push(p);
+            }
+            function addTocha(x, y, z, id) {
+                const k = numKey(x, y, z);
+                const dir = TOCHA_DIR[id - ID_TOCHA];                  // null = em pé · [dx,dz] = bloco que sustenta (parede)
+                const modelo = modeloVox('tocha', false);              // [0] = madeira, [1] = chama
+                const raiz = new THREE.Group();
+                const g = new THREE.Group();
+                g.scale.setScalar(ESC_TOCHA);
+                g.position.y = 0.225 * ESC_TOCHA;
+                g.rotation.y = h2(x, z, SEED + 61) * Math.PI;
+                raiz.add(g);
+                let ex = x, ey = y + 0.8, ez = z, lx = x, ly = y + 0.9, lz = z;   // centro da chama e da luz
+                if (dir) {                                             // parede: base colada no bloco, topo inclinado para fora
+                    const ang = 0.42, sn = Math.sin(ang), cs = Math.cos(ang);
+                    const bx = x + dir[0] * 0.4, by = y + 0.2, bz = z + dir[1] * 0.4;
+                    raiz.position.set(bx, by, bz);
+                    raiz.rotation.z = dir[0] === 1 ? ang : dir[0] === -1 ? -ang : 0;
+                    raiz.rotation.x = dir[1] === 1 ? -ang : dir[1] === -1 ? ang : 0;
+                    const lean = [-dir[0] * sn, cs, -dir[1] * sn];
+                    ex = bx + lean[0] * 0.8; ey = by + lean[1] * 0.8; ez = bz + lean[2] * 0.8;
+                    lx = bx + lean[0] * 0.95; ly = by + lean[1] * 0.95; lz = bz + lean[2] * 0.95;
+                } else raiz.position.set(x, y, z);                     // blocos são centrados em (x, z)
+                const chama = new THREE.Group();                       // pivô na base da chama (balança e cresce a partir dali)
+                chama.position.y = 0.22;
+                const brilho = modelo.children[1];
+                brilho.position.y = -0.22;
+                chama.add(brilho);
+                g.add(modelo.children[0], chama);
+                scene.add(raiz);
+                let luz = null;
+                if (tochaObjs.size < 14) {
+                    luz = new THREE.PointLight(0xffa64d, 1.7, 14, 2);
+                    luz.position.set(lx, ly, lz);
+                    scene.add(luz);
+                }
+                const nasc = tochaNova ? performance.now() : -1e9;
+                if (tochaNova) {                                       // acendendo: estouro de fagulhas
+                    for (let i = 0; i < 14; i++) emitirFagulha(ex, ey, ez, false);
+                    tochaNova = false;
+                }
+                tochaObjs.set(k, { g: raiz, chama, luz, x, y, z, ex, ey, ez, fase: Math.random() * 6.283, nasc, tFag: 0, tFum: 0 });
+            }
+            function remTocha(k) {
+                const o = tochaObjs.get(k);
+                if (!o) return;
+                scene.remove(o.g);
+                if (o.luz) { scene.remove(o.luz); if (o.luz.dispose) o.luz.dispose(); }
+                tochaObjs.delete(k);
+            }
+            // ----- Portas: painel fino na aresta do bloco, gira em torno da dobradiça -----
+            const portaObjs = new Map(), portaPrev = new Map(), camaObjs = new Map();
+            function addPorta(x, y, z, id) {
+                const k = numKey(x, y, z);
+                const idx = portaIdx(id), o = idx >> 1, aberta = idx & 1, esp = portaEsp(id);
+                const n = DIRS4[o], t = 0.16;
+                const ax = -n[1], az = n[0];                              // direção ao longo da porta
+                const sg = esp ? -1 : 1;                                  // espelhada: dobradiça no extremo -a
+                const piv = new THREE.Group();                            // pivô = dobradiça, rente à aresta
+                piv.position.set(x + n[0] * (0.5 - t / 2) + ax * 0.5 * sg, y, z + n[1] * (0.5 - t / 2) + az * 0.5 * sg);
+                const th = Math.atan2(-az, ax);
+                const m = new THREE.Mesh(PORTA_GEO, esp ? MAT.portaEsp : MAT.porta);
+                m.position.set(-0.5 * sg, 1, 0);
+                piv.add(m);
+                const alvo = aberta ? (esp ? -Math.PI / 2 : Math.PI / 2) : 0;
+                let ang = alvo;
+                const pv = portaPrev.get(k);
+                if (pv && performance.now() - pv.t < 250) ang = pv.ang;   // continua de onde a porta estava (animação)
+                portaPrev.delete(k);
+                piv.rotation.y = th + ang;
+                scene.add(piv);
+                portaObjs.set(k, { piv, th, ang, alvo });
+            }
+            function remPorta(k) {
+                const o = portaObjs.get(k);
+                if (!o) return;
+                portaPrev.set(k, { ang: o.ang, t: performance.now() });
+                scene.remove(o.piv);
+                portaObjs.delete(k);
+            }
+            function atualizarPortas(dt) {
+                for (const o of portaObjs.values()) {
+                    if (o.ang === o.alvo) continue;
+                    o.ang += (o.alvo - o.ang) * (1 - Math.exp(-14 * dt));
+                    if (Math.abs(o.alvo - o.ang) < 0.003) o.ang = o.alvo;
+                    o.piv.rotation.y = o.th + o.ang;
+                }
+            }
+            function addCama(x, y, z, id) {
+                const k = numKey(x, y, z);
+                const d = DIRS4[id - ID_CAMA];
+                const g = modeloCama(false);
+                g.position.set(x + d[0] * 0.5, y + 0.375, z + d[1] * 0.5);
+                g.rotation.y = Math.atan2(d[0], d[1]);
+                scene.add(g);
+                camaObjs.set(k, g);
+            }
+            function remCama(k) {
+                const g = camaObjs.get(k);
+                if (!g) return;
+                scene.remove(g);
+                camaObjs.delete(k);
+            }
+            const _tf = { px: 0, pz: 0 };
+            function atualizarTochas(dt, jx, jz) {
+                const agora = performance.now(), t = agora / 1000;
+                for (const [, o] of tochaObjs) {
+                    const idade = (agora - o.nasc) / 1000;
+                    const acender = idade < 0.6 ? 1 - Math.pow(1 - idade / 0.6, 3) : 1;    // chama cresce ao acender
+                    const f = o.fase;
+                    const tr = 0.5 + 0.5 * Math.sin(t * 13 + f) * Math.sin(t * 7.3 + f * 2.1) + 0.25 * Math.sin(t * 31 + f);
+                    const esc = (0.92 + 0.14 * tr) * acender;
+                    o.chama.scale.set(esc * (1 - 0.1 * tr), esc * (1 + 0.28 * tr), esc * (1 - 0.1 * tr));
+                    o.chama.rotation.z = Math.sin(t * 5 + f) * 0.07;
+                    o.chama.rotation.x = Math.cos(t * 4.3 + f) * 0.07;
+                    if (o.luz) o.luz.intensity = (1.45 + 0.5 * tr + Math.sin(t * 47 + f) * 0.06) * (0.35 + 0.65 * acender) * (1 - 0.55 * DIA_V);
+                    const dx = o.ex - jx, dz = o.ez - jz;
+                    if (dx * dx + dz * dz > 700) continue;              // longe (26 blocos): sem partículas
+                    o.tFag -= dt; o.tFum -= dt;
+                    if (o.tFag <= 0) { o.tFag = 0.12 + Math.random() * 0.25; emitirFagulha(o.ex, o.ey, o.ez, false); }
+                    if (o.tFum <= 0) { o.tFum = 0.35 + Math.random() * 0.4; emitirFagulha(o.ex, o.ey + 0.2, o.ez, true); }
+                }
+                for (let i = fagulhas.length - 1; i >= 0; i--) {
+                    const p = fagulhas[i];
+                    p.vida -= dt;
+                    if (p.vida <= 0) { p.mesh.visible = false; fagulhas.splice(i, 1); fagPool.push(p); continue; }
+                    const u = p.vida / p.vida0;                         // 1 → 0
+                    p.mesh.position.x += (p.vx + 0.12 * Math.sin(t * 3 + i)) * dt;
+                    p.mesh.position.y += p.vy * dt;
+                    p.mesh.position.z += p.vz * dt;
+                    p.mesh.scale.setScalar(p.fumaca ? p.tam * (1 + (1 - u) * 2.6) : p.tam * (0.3 + 0.7 * u));
+                }
+            }
+
+            const numKey = (x, y, z) => ((x + 1048576) * 2097152 + (z + 1048576)) * 256 + (y + 16);
+            const chaveOk = (x, y, z) => y >= -16 && y <= 239 && x > -1048576 && x < 1048576 && z > -1048576 && z < 1048576;
             function decodeKey(k) {
                 const y = (k % 256) - 16;
                 const r = (k - (y + 16)) / 256;
-                const z = (r % 2048) - 1024;
-                const x = Math.floor(r / 2048) - 1024;
+                const z = (r % 2097152) - 1048576;
+                const x = Math.floor(r / 2097152) - 1048576;
                 return [x, y, z];
             }
 
             function addInst(k, x, y, z, id) {
+                if (ehTochaId(id)) { addTocha(x, y, z, id); renderId.set(k, id); return; }
+                if (ehPortaId(id)) { if (portaBaixo(id)) addPorta(x, y, z, id); renderId.set(k, id); return; }   // metade de cima não desenha nada
+                if (ehCamaId(id)) { if (id < ID_CAMA + 4) addCama(x, y, z, id); renderId.set(k, id); return; }
                 _m4.makeTranslation(x, y + 0.5, z);
                 if (conj[id].add(k, _m4)) renderId.set(k, id);
             }
             function remInst(k) {
                 const id = renderId.get(k);
                 if (id === undefined) return;
-                conj[id].remove(k);
+                if (ehTochaId(id)) remTocha(k);
+                else if (ehPortaId(id)) remPorta(k);
+                else if (ehCamaId(id)) remCama(k);
+                else conj[id].remove(k);
                 renderId.delete(k);
             }
             function addPlanta(x, y, z, tipo, rx, ry, rz, esc, escY) {
@@ -1590,11 +2397,15 @@
                 const n2 = fbm2(x * 0.05, z * 0.05, 3, 22);
                 let h = 9 + (n1 - 0.5) * 26 + (n2 - 0.5) * 5;
                 if (h < 3) h = 3;
-                const d = Math.hypot(x, z);
-                const w = clamp((16 - d) / 10, 0, 1);
-                const ws = w * w * (3 - 2 * w);
-                h = h * (1 - ws) + 10 * ws;
-                return Math.floor(h);
+                if (h > YMAX - 12) h = YMAX - 12;
+                return Math.floor(h);      // mundo infinito: sem planalto central
+            }
+            // cavernas: ruído 3D barato em planos inclinados (túneis sinuosos)
+            function ehCaverna(x, y, z) {
+                const a = Math.abs(fbm2(x * 0.055 + y * 0.032, z * 0.055 - y * 0.026, 2, 91) - 0.5);
+                if (a < 0.052) return true;
+                const b = Math.abs(fbm2(x * 0.047 - y * 0.021 + 60, z * 0.047 + y * 0.029 - 60, 2, 92) - 0.5);
+                return b < 0.048;
             }
             // 0 carvalhos · 1 pinhal · 2 terra morta · 3 pântano · 4 bétulas
             function biomaAt(x, z, h) {
@@ -1617,7 +2428,7 @@
             }
 
             const chunks = new Map();
-            const ckKey = (cx, cz) => (cx + 2048) * 4096 + (cz + 2048);
+            const ckKey = (cx, cz) => (cx + 1048576) * 2097152 + (cz + 1048576);
             let ultCK = -1, ultChunk = null;
 
             function gerarChunk(cx, cz) {
@@ -1638,6 +2449,8 @@
                         else if (y >= h - 4) id = (sup === ID.lama && y === h - 2) ? ID.lama : (sup === ID.podzol && y === h - 2 ? ID.podzol : ID.terra);
                         else if (y === 0) id = ID.pedra_negra;
                         else id = ID.rocha;
+                        // cavernas: abre túneis no subsolo (sem furar a camada de terra da superfície)
+                        if (id === ID.rocha && y <= h - 5 && y > 1 && ehCaverna(x, y, z)) id = 0;
                         data[y * 256 + lz * 16 + lx] = id;
                     }
                 }
@@ -1765,6 +2578,40 @@
                     }
                 }
 
+                // ----- Minérios (carvão, ferro e ouro) -----
+                const setMin = (x, y, z, id) => {
+                    const lx = x - x0, lz = z - z0;
+                    if (lx < 0 || lx > 15 || lz < 0 || lz > 15 || y < 1 || y >= YMAX) return;
+                    const idx = y * 256 + lz * 16 + lx;
+                    const cur = data[idx];
+                    if (cur === ID.rocha || cur === ID.pedra_negra || cur === ID.pedra || cur === ID.musgo) data[idx] = id;
+                };
+                const rrMin = criarPRNG(((cx * 374761393) ^ (cz * 668265263) ^ (SEED + 31)) >>> 0);
+                const veio = (n, minY, maxY, tam, id) => {
+                    for (let k = 0; k < n; k++) {
+                        const tx = x0 + Math.floor(rrMin() * 16), tz = z0 + Math.floor(rrMin() * 16);
+                        const th = alturaAt(tx, tz);
+                        const topo = Math.max(minY + 1, Math.min(maxY, th - 5));
+                        if (topo <= minY) continue;
+                        const ty = minY + Math.floor(rrMin() * (topo - minY));
+                        let px = tx, py = ty, pz = tz;
+                        const nb = 2 + Math.floor(rrMin() * tam);
+                        for (let i = 0; i < nb; i++) {
+                            setMin(px, py, pz, id);
+                            const d = Math.floor(rrMin() * 6);
+                            if (d === 0) px += rrMin() < 0.5 ? 1 : -1;
+                            else if (d === 1) pz += rrMin() < 0.5 ? 1 : -1;
+                            else if (d === 2) py += 1;
+                            else if (d === 3) py -= 1;
+                            else if (d === 4) { px += rrMin() < 0.5 ? 1 : -1; pz += rrMin() < 0.5 ? 1 : -1; }
+                            else { px += rrMin() < 0.5 ? 1 : -1; py += 1; }
+                        }
+                    }
+                };
+                veio(7, 3, 46, 5, ID.minerio_carvao);        // carvão: comum
+                veio(4, 2, 34, 4, ID.minerio_ferro);         // ferro: médio
+                veio(2, 1, 16, 3, ID.minerio_ouro);          // ouro: raro e profundo
+
                 return { cx, cz, data, alt, maxY: Math.min(YMAX, maxY + 1), renderizado: false, plantas: [] };
             }
 
@@ -1799,7 +2646,7 @@
                     if (ny < 0) continue;
                     if (ny >= YMAX) return true;
                     const n = getId(x + DX[i], ny, z + DZ[i]);
-                    if (n === 0) return true;
+                    if (n === 0 || ehEspecialId(n)) return true;      // a tocha não esconde o bloco vizinho
                     if (ehTransp[n] && n !== id) return true;
                 }
                 if (ehFolha[id] && ((h2(x, z, y + SEED) * 4) | 0) === 0) return true;
@@ -1816,7 +2663,7 @@
                 const id = getId(x, y, z);
                 const k = numKey(x, y, z);
                 const atual = renderId.get(k);
-                const desejado = (id > 0 && visivel(x, y, z, id)) ? id : 0;
+                const desejado = (id > 0 && (ehEspecialId(id) || visivel(x, y, z, id))) ? id : 0;
                 if ((atual || 0) === desejado) return;
                 if (atual) remInst(k);
                 if (desejado) addInst(k, x, y, z, desejado);
@@ -1902,6 +2749,21 @@
                     const x = x0 + lx, z = z0 + lz, h = alt[lz * 16 + lx];
                     const hn = Math.min(altDe(x - 1, z), altDe(x + 1, z), altDe(x, z - 1), altDe(x, z + 1));
                     const ys = Math.max(0, Math.min(h - 1, hn));
+                    // SUBSOLO: blocos abaixo da superfície só aparecem se tocarem ar (cavernas, túneis, buracos).
+                    // Antes essa região era ignorada e as paredes das cavernas ficavam "transparentes".
+                    for (let y = 1; y < ys; y++) {
+                        const bi = y * 256 + lz * 16 + lx;
+                        const id = data[bi];
+                        if (!id) continue;
+                        if (lx > 0 && lx < 15 && lz > 0 && lz < 15) {
+                            // atalho: bloco totalmente cercado por blocos opacos do próprio chunk não precisa de checagem
+                            const a = data[bi + 1], b = data[bi - 1], d = data[bi + 16], e = data[bi - 16], f = data[bi + 256], g = data[bi - 256];
+                            if (a && b && d && e && f && g && !ehTransp[a] && !ehTransp[b] && !ehTransp[d] && !ehTransp[e] && !ehTransp[f] && !ehTransp[g]) continue;
+                        }
+                        const k = numKey(x, y, z);
+                        if (renderId.has(k) || (edits.size && edits.has(k))) continue;
+                        if (visivel(x, y, z, id)) addInst(k, x, y, z, id);
+                    }
                     for (let y = ys; y < c.maxY; y++) {
                         const id = data[y * 256 + lz * 16 + lx];
                         if (!id) continue;
@@ -2062,7 +2924,7 @@
             maoItemGrp.position.set(0, -0.93, -0.17);
             maoItemGrp.rotation.set(0.35, 0.7, 0);
             maoPivo.add(maoItemGrp);
-            let itemMaoAtual = -2, maoBraco = null, maoEnxada = null;
+            let itemMaoAtual = -2, maoBraco = null, maoEnxada = null, maoEspada = null, maoPicareta = null, maoPa = null, maoLanca = null, maoTocha = null;
             const matsMaoCache = new Map();
             {
                 const matsBraco = meuChar.armR.children[0].material.map(m => {
@@ -2075,10 +2937,36 @@
                 braco.renderOrder = 999;
                 maoPivo.add(braco);
                 maoBraco = braco;
-                maoEnxada = modeloEnxada(true);            // a enxada substitui o braço quando está na mão
+                maoEnxada = modeloEnxada(true);            // ferramenta presa na mão (braço continua visível)
                 maoEnxada.scale.setScalar(0.8);
+                segurarFerramenta(maoEnxada, 'enxada', true);
                 maoEnxada.visible = false;
                 maoPivo.add(maoEnxada);
+                maoEspada = modeloEspada(true);
+                maoEspada.scale.setScalar(0.8);
+                segurarFerramenta(maoEspada, 'espada', true);
+                maoEspada.visible = false;
+                maoPivo.add(maoEspada);
+                maoPicareta = modeloPicareta(true);
+                maoPicareta.scale.setScalar(0.8);
+                segurarFerramenta(maoPicareta, 'picareta', true);
+                maoPicareta.visible = false;
+                maoPivo.add(maoPicareta);
+                maoPa = modeloPa(true);
+                maoPa.scale.setScalar(0.8);
+                segurarFerramenta(maoPa, 'pa', true);
+                maoPa.visible = false;
+                maoPivo.add(maoPa);
+                maoLanca = modeloLanca(true);
+                maoLanca.scale.setScalar(0.8);
+                segurarFerramenta(maoLanca, 'lanca', true);
+                maoLanca.visible = false;
+                maoPivo.add(maoLanca);
+                maoTocha = modeloTochaMao(true);
+                maoTocha.scale.setScalar(0.9);
+                segurarFerramenta(maoTocha, 'tocha', true);
+                maoTocha.visible = false;
+                maoPivo.add(maoTocha);
                 maoPivo.renderOrder = 999;
                 maoPivo.visible = false;
                 camera.add(maoPivo);
@@ -2170,6 +3058,7 @@
             document.body.appendChild(balloonEl);
             const MAPA_EMOTE_ICONE = { wave: '👋', kiss: '😘', dance: '💃', cheer: '🙌' };
             function dispararEmote(tipo) {
+                if (dormindo) return;
                 emoteAtivo = tipo;
                 emoteTimer = 3.5;
                 balloonEl.innerText = MAPA_EMOTE_ICONE[tipo] || '✨';
@@ -2265,6 +3154,19 @@
             })));
             [['Semente de Trigo', 'semente'], ['Trigo', 'trigo'], ['Enxada', 'enxada'], ['Graveto', 'graveto']].forEach(([nome, k]) =>
                 ITENS.push({ nome, tex: TEX_ITENS[k], icone: TEX_ITENS[k].image.toDataURL(), cor: 0xc9b26b }));
+            // itens que não são blocos nem plantas (índices logo depois dos 4 acima)
+            ITENS.push({ nome: 'Carne', tex: TEX_ITENS.carne, icone: TEX_ITENS.carne.image.toDataURL(), cor: 0xc25147 });
+            ITENS.push({ nome: 'Espada de Madeira', tex: TEX_ITENS.espada, icone: TEX_ITENS.espada.image.toDataURL(), cor: 0xc9d1d6 });
+            ITENS.push({ nome: 'Picareta de Madeira', tex: TEX_ITENS.picareta, icone: TEX_ITENS.picareta.image.toDataURL(), cor: 0xc9d1d6 });
+            ITENS.push({ nome: 'Pá de Madeira', tex: TEX_ITENS.pa, icone: TEX_ITENS.pa.image.toDataURL(), cor: 0xc9d1d6 });
+            ITENS.push({ nome: 'Lança de Madeira', tex: TEX_ITENS.lanca, icone: TEX_ITENS.lanca.image.toDataURL(), cor: 0xc9b26b });
+            ITENS.push({ nome: 'Tocha', tex: TEX_ITENS.tocha, icone: TEX_ITENS.tocha.image.toDataURL(), cor: 0xffb347 });
+            ITENS.push({ nome: 'Carvão', tex: TEX_ITENS.carvao, icone: TEX_ITENS.carvao.image.toDataURL(), cor: 0x2b2b2b });
+            ITENS.push({ nome: 'Barra de Ferro', tex: TEX_ITENS.ferro, icone: TEX_ITENS.ferro.image.toDataURL(), cor: 0xc4c4c4 });
+            ITENS.push({ nome: 'Barra de Ouro', tex: TEX_ITENS.ouro, icone: TEX_ITENS.ouro.image.toDataURL(), cor: 0xf0cb4c });
+            ITENS.push({ nome: 'Lã', tex: TEX_ITENS.la, icone: TEX_ITENS.la.image.toDataURL(), cor: 0xf2f0ea });
+            ITENS.push({ nome: 'Cama', tex: TEX_ITENS.cama, icone: TEX_ITENS.cama.image.toDataURL(), cor: 0xc23a3a });
+            ITENS.push({ nome: 'Porta', tex: TEX_ITENS.porta, icone: TEX_ITENS.porta.image.toDataURL(), cor: 0xa97f4b });
             const NITENS = ITENS.length;
             const NSLOTS = 9;
             const barra = new Array(NSLOTS).fill(-1);   // índice em ITENS, ou -1 = vazio
@@ -2396,14 +3298,14 @@
                 salvarSurvT = setTimeout(() => {
                     salvarSurvT = null;
                     if (modoJogo !== 'sobrevivencia') return;
-                    store.set('mig_surv', JSON.stringify({
+                    store.set('mig_surv2', JSON.stringify({
                         b: barra.map((it, k) => [it, barraQtd[k]]), i: invItem.map((it, k) => [it, invQtd[k]])
                     }));
                 }, 600);
             }
             function carregarSurv() {
                 try {
-                    const o = JSON.parse(store.get('mig_surv', ''));
+                    const o = JSON.parse(store.get('mig_surv2', ''));
                     if (!o) return;
                     const ok = (it) => Number.isInteger(it) && it >= 0 && it < NITENS;
                     (o.b || []).forEach(([it, q], k) => { if (k < NSLOTS && ok(it)) { barra[k] = it; barraQtd[k] = clamp(q | 0, 1, PILHA_MAX); } });
@@ -2413,7 +3315,7 @@
             window.addEventListener('pagehide', () => {            // fechou a página com itens na bancada: tudo volta pro inventário
                 if (modoJogo !== 'sobrevivencia') return;
                 devolverBancada();
-                store.set('mig_surv', JSON.stringify({
+                store.set('mig_surv2', JSON.stringify({
                     b: barra.map((it, k) => [it, barraQtd[k]]), i: invItem.map((it, k) => [it, invQtd[k]])
                 }));
             });
@@ -2652,7 +3554,7 @@
                 } else if (!surv && antes === 'sobrevivencia') {
                     for (let k = 0; k < NSLOTS; k++) barra[k] = barraSand[k];
                     barraQtd.fill(0);
-                    store.set('mig_surv', '');
+                    store.set('mig_surv2', '');
                 }
                 modoJogo = m;
                 invOrigem = null; invSel = -1;
@@ -2671,7 +3573,21 @@
                 const c = txt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '');
                 if (['/sobrevivencia', '/sobreviencia', '/sobreviviencia', '/survival'].indexOf(c) >= 0) aplicarModo('sobrevivencia', true);
                 else if (['/sandbox', '/sanbox', '/normal', '/criativo', '/creative'].indexOf(c) >= 0) aplicarModo('sandbox', true);
-                else msgSistema('Comando desconhecido. Use /sobrevivencia ou /sandbox');
+                else if (['/dia', '/day', '/sol'].indexOf(c) >= 0) definirTempo(0.22);
+                else if (['/noite', '/night'].indexOf(c) >= 0) definirTempo(0.72);
+                else if (['/chuva', '/rain'].indexOf(c) >= 0) definirClima('chuva');
+                else if (['/limpo', '/clear', '/ceu-limpo', '/parar-chuva'].indexOf(c) >= 0) definirClima('limpo');
+                else if (['/ajuda', '/help', '/comandos', '/cmd'].indexOf(c) >= 0) mostrarAjuda();
+                else msgSistema('Comando desconhecido. Use /ajuda para ver a lista de comandos.');
+            }
+            function mostrarAjuda() {
+                msgSistema('Comandos: /ajuda · /dia · /noite · /chuva · /limpo · /sobrevivencia · /sandbox');
+                msgSistema('Craft: picareta = 3 tábuas + 2 gravetos · pá = 1 tábua + 2 gravetos');
+                msgSistema('Craft: lança = 1 tábua + 2 gravetos (na horizontal) · tocha = 1 carvão + 1 graveto');
+                msgSistema('Craft: barra de ferro/ouro = 1 minério do mesmo tipo');
+                msgSistema('Cama: 3 lã (da ovelha) em cima + 3 tábuas embaixo · ponha no chão e toque nela à noite para dormir.');
+                msgSistema('Porta: 6 tábuas (2 colunas x 3 linhas) · toque na porta para abrir e fechar.');
+                msgSistema('Minérios (carvão/ferro/ouro) só saem com picareta · zumbis só à noite na sobrevivência.');
             }
             function gastarPulo() {
                 if (modoJogo === 'sobrevivencia') fome = Math.max(0, fome - FOME_PULO);
@@ -2700,7 +3616,8 @@
                 for (let ix = minX; ix <= maxX; ix++) {
                     for (let iy = minY; iy <= maxY; iy++) {
                         for (let iz = minZ; iz <= maxZ; iz++) {
-                            if (getBloco(ix, iy, iz)) return true;
+                            const b = getBloco(ix, iy, iz);
+                            if (bateBloco(b, ix, iz, x - 0.3, x + 0.3, z - 0.3, z + 0.3)) return true;      // a tocha não bloqueia o passo
                         }
                     }
                 }
@@ -2752,7 +3669,11 @@
                 let tmz = dz !== 0 ? (dz > 0 ? bz + 1 - oz : oz - bz) * tdz : Infinity;
                 let ax = bx, ay = by, az = bz, t = 0, primeiro = true;
                 while (t <= 16) {
-                    const existe = by < 0 ? -1 : getBloco(bx, by, bz);
+                    let existe = by < 0 ? -1 : getBloco(bx, by, bz);
+                    if (existe > 0 && ehPortaId(existe)) {
+                        const pr = portaRect(existe, bx, bz);
+                        if (raioCaixa(ox, oy, oz, dx, dy, dz, pr[0] + 0.5, by, pr[2] + 0.5, pr[1] + 0.5, by + 1, pr[3] + 0.5) < 0) existe = 0;
+                    }
                     if (!existe && by >= 0 && plantaTipo.size) {
                         const tp = plantaTipo.get(numKey(bx, by, bz));
                         if (tp !== undefined) {
@@ -2887,6 +3808,8 @@
             const quebra = { alvoKey: -1, prog: 0, delay: 0, tick: 0, id: 0 };
             const quebraPtr = { on: false, fonte: '', nx: 0, ny: 0 };
             let ultimoPlace = 0;
+            let colocarRep = false;                       // true quando o toque está repetindo (segurando o botão)
+            let dormindo = false, sonoT = 0, camaAtual = null;
 
             function virarPara(x, z) { alvoRot = Math.atan2(x - posX, z - posZ); }
 
@@ -2911,6 +3834,46 @@
                 meuChar.golpe = 0.25;
                 sfxColocar(ID.terra);
                 virarPara(bx, bz);
+                return true;
+            }
+            // tocha: coloca em cima do bloco mirado (precisa de apoio)
+            // tochas apoiadas no bloco (x,y,z) — em cima dele ou nos 4 lados — soltam-se quando ele some
+            function soltarTochasDe(x, y, z) {
+                const lista = [[x, y + 1, z, ID_TOCHA], [x - 1, y, z, ID_TOCHA + 1], [x + 1, y, z, ID_TOCHA + 2],
+                               [x, y, z - 1, ID_TOCHA + 3], [x, y, z + 1, ID_TOCHA + 4]];
+                for (const [tx, ty, tz, tid] of lista) {
+                    if (getId(tx, ty, tz) !== tid) continue;
+                    aplicarEdicao(tx, ty, tz, 0);
+                    pend.delete(numKey(tx, ty, tz));
+                    bufferEdicoes.push([tx, ty, tz, 0]);
+                    if (modoJogo === 'sobrevivencia') soltarItem(tx, ty, tz, ITEM_TOCHA, 0.3);
+                    explodirBloco(tx, ty, tz, ID.tabua);
+                }
+            }
+            // tocha: em cima de um bloco (em pé) ou na lateral dele (tocha de parede, inclinada)
+            function colocarTocha(a) {
+                const px = a.px, py = a.py, pz = a.pz;
+                if (py < 0 || py >= YMAX - 2) return false;
+                if (getId(px, py, pz) !== 0) return false;
+                if (ehEspecialId(a.id)) return false;
+                let id = ID_TOCHA;
+                const nx = px - a.x, ny = py - a.y, nz = pz - a.z;
+                if (a.planta < 0 && ny === 0 && Math.abs(nx) + Math.abs(nz) === 1) {
+                    id = nx === -1 ? ID_TOCHA + 1 : nx === 1 ? ID_TOCHA + 2 : nz === -1 ? ID_TOCHA + 3 : ID_TOCHA + 4;
+                } else {
+                    const b = getBloco(px, py - 1, pz);
+                    if (!b || ehEspecialId(b)) return false;           // em pé: precisa de bloco embaixo
+                }
+                tochaNova = true;                                   // dispara a animação de acender
+                aplicarEdicao(px, py, pz, id);
+                tochaNova = false;
+                bufferEdicoes.push([px, py, pz, id]);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.madeira || ID.log);
+                rajada(0.35, 'highpass', 2600, 0.8, 0.22, 0.01);    // chiado do fogo acendendo
+                tom(180, 420, 0.18, 0.08, 'triangle');
+                virarPara(px, pz);
                 return true;
             }
             // semente: um toque no arado planta (arado vira "arado com semente"; o servidor faz crescer)
@@ -2938,16 +3901,187 @@
                 sfxQuebrar(ID.folhas);
             }
 
+            // usar a cama: à noite, dorme e amanhece (também limpa a chuva)
+            function dormirAntigo() {
+                if (DIA_V >= 0.35) { msgSistema('Você só consegue dormir à noite.'); return false; }
+                definirTempo(0.02);
+                if (clima === 'chuva') definirClima('limpo');
+                msgSistema('Você dormiu e o dia amanheceu.');
+                tom(220, 330, 0.9, 0.08, 'sine');
+                return true;
+            }
+            // ----- porta e cama -----
+            const sonoFx = document.getElementById('sono-fx');
+            sonoFx.addEventListener('pointerdown', e => { e.preventDefault(); if (dormindo && sonoT > 1) acordar(false); });
+            function frenteIdx() {           // para onde o jogador olha (0..3 = DIRS4)
+                const fx = -Math.sin(camRotX), fz = -Math.cos(camRotX);
+                return Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 1 : 3) : (fz > 0 ? 2 : 0);
+            }
+            function jogadorEm(cx, cz, y0, y1) { return Math.abs(cx - posX) < 0.8 && Math.abs(cz - posZ) < 0.8 && posY + ALTURA_JOG > y0 && posY < y1; }
+            function celulaLivre(x, y, z) {
+                if (y < 0 || y >= YMAX - 1 || getId(x, y, z) !== 0) return false;
+                const tp = plantaTipo.get(numKey(x, y, z));
+                return tp === undefined || tp < 5;       // capim e flores podem ser substituídos; plantação não
+            }
+            function temApoio(x, y, z) { const b = getBloco(x, y - 1, z); return ehSolidoBloco(b) && !ehEspecialId(b); }
+            function gravarEdicao(x, y, z, id) {
+                aplicarEdicao(x, y, z, id);
+                pend.delete(numKey(x, y, z));
+                bufferEdicoes.push([x, y, z, id]);
+            }
+            function sfxPorta(abrir) {
+                rajada(0.22, 'lowpass', 520, 0.8, 0.28);
+                tom(abrir ? 170 : 150, abrir ? 250 : 85, 0.2, 0.13, 'triangle');
+            }
+            function colocarPorta(a) {
+                const x = a.px, y = a.py, z = a.pz;
+                if (y < 1 || y >= YMAX - 3) return false;
+                if (!celulaLivre(x, y, z) || !celulaLivre(x, y + 1, z) || !temApoio(x, y, z)) return false;
+                if (jogadorEm(x, z, y, y + 2)) return false;
+                const o = (frenteIdx() + 2) % 4;          // a porta fica na aresta do lado de quem está colocando
+                // porta ao lado de outra (mesma direção) vira porta dupla: as dobradiças ficam nas pontas e uma é espelhada da outra
+                const n = DIRS4[o], ax = -n[1], az = n[0];
+                const vizinha = (cx, cz) => { const id = getId(cx, y, cz); return (ehPortaId(id) && portaBaixo(id) && (portaIdx(id) >> 1) === o) ? id : 0; };
+                const maisId = vizinha(x + ax, z + az), menosId = vizinha(x - ax, z - az);
+                let esp = false;
+                if (maisId && !menosId) esp = true;                 // vizinha no lado +a: minha dobradiça vai para o lado -a
+                else if (menosId && !maisId) esp = false;           // vizinha no lado -a: minha dobradiça fica no lado +a
+                const flip = (cx, cz, id, querEsp) => {             // ajusta a vizinha para a dobradiça ficar na ponta de fora
+                    if (portaEsp(id) === querEsp || (portaOff(id) & 1)) return;      // já certa ou está aberta
+                    const alvoId = querEsp ? id + 32 : id - 32;
+                    if (ehPortaId(getId(cx + (cx - x), y, cz + (cz - z)))) return;   // já faz par com outra porta
+                    gravarEdicao(cx, y, cz, alvoId);
+                    gravarEdicao(cx, y + 1, cz, alvoId + 8);
+                };
+                if (maisId && !menosId) flip(x + ax, z + az, maisId, false);
+                if (menosId && !maisId) flip(x - ax, z - az, menosId, true);
+                const base = ID_PORTA + (esp ? 32 : 0);
+                gravarEdicao(x, y, z, base + o * 2);
+                gravarEdicao(x, y + 1, z, base + 8 + o * 2);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.tabua);
+                virarPara(x, z);
+                return true;
+            }
+            function alternarPorta(x, y, z) {
+                const id = getId(x, y, z);
+                if (!ehPortaId(id)) return false;
+                const by = portaBaixo(id) ? y : y - 1;
+                const idB = getId(x, by, z), idT = getId(x, by + 1, z);
+                if (!ehPortaId(idB)) return false;
+                const troca = (i) => i + ((portaOff(i) & 1) ? -1 : 1);       // alterna aberta/fechada
+                const novoB = troca(idB);
+                const fechando = (portaOff(novoB) & 1) === 0;
+                if (fechando && jogadorEm(x, z, by, by + 2)) return false;   // não fecha em cima de você
+                gravarEdicao(x, by, z, novoB);
+                if (ehPortaId(idT)) gravarEdicao(x, by + 1, z, troca(idT));
+                sfxPorta(!fechando);
+                meuChar.golpe = 0.25;
+                virarPara(x, z);
+                return true;
+            }
+            function colocarCama(a) {
+                const x = a.px, y = a.py, z = a.pz;
+                if (y < 1 || y >= YMAX - 2) return false;
+                const o = frenteIdx(), d = DIRS4[o];        // cabeceira para onde você olha
+                const hx = x + d[0], hz = z + d[1];
+                if (!celulaLivre(x, y, z) || !celulaLivre(hx, y, hz)) return false;
+                if (!temApoio(x, y, z) || !temApoio(hx, y, hz)) return false;
+                if (jogadorEm(x, z, y, y + 1) || jogadorEm(hx, hz, y, y + 1)) return false;
+                gravarEdicao(x, y, z, ID_CAMA + o);
+                gravarEdicao(hx, y, hz, ID_CAMA + 4 + o);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.tabua);
+                virarPara(x, z);
+                return true;
+            }
+            function quebrarEspecial(x, y, z, id) {
+                const porta = ehPortaId(id);
+                let cels;
+                if (porta) { const by = portaBaixo(id) ? y : y - 1; cels = [[x, by, z], [x, by + 1, z]]; }
+                else {
+                    const d = DIRS4[(id - ID_CAMA) & 3];
+                    const fx = id < ID_CAMA + 4 ? x : x - d[0], fz = id < ID_CAMA + 4 ? z : z - d[1];
+                    cels = [[fx, y, fz], [fx + d[0], y, fz + d[1]]];
+                }
+                for (const c of cels) {
+                    const cid = getId(c[0], c[1], c[2]);
+                    if (porta ? ehPortaId(cid) : ehCamaId(cid)) { gravarEdicao(c[0], c[1], c[2], 0); explodirBloco(c[0], c[1], c[2], ID.tabua); }
+                }
+                if (modoJogo === 'sobrevivencia') soltarItem(x, y, z, porta ? ITEM_PORTA : ITEM_CAMA, 0.5);
+                sfxQuebrar(ID.tabua);
+            }
+            function desfazerSobre(x, y, z) {            // porta/cama que ficou sem apoio cai
+                const c = getId(x, y + 1, z);
+                if (ehPortaId(c) && portaBaixo(c)) quebrarEspecial(x, y + 1, z, c);
+                else if (ehCamaId(c)) quebrarEspecial(x, y + 1, z, c);
+            }
+            function dormirNaCama(x, y, z, id) {
+                if (dormindo) return false;
+                if (DIA_V >= 0.35) { msgSistema('Você só consegue dormir à noite.'); return false; }
+                for (const m of mobs) if (m.hostil && Math.hypot(m.x - posX, m.z - posZ) < 10) { msgSistema('Você não pode dormir com zumbis por perto.'); return false; }
+                const o = (id - ID_CAMA) & 3, d = DIRS4[o];
+                const fx = id >= ID_CAMA + 4 ? x - d[0] : x, fz = id >= ID_CAMA + 4 ? z - d[1] : z;
+                dormindo = true; sonoT = 0;
+                camaAtual = { fx, fy: y, fz, o };
+                posX = fx + d[0] * 0.5; posZ = fz + d[1] * 0.5; posY = y + 0.3;
+                velX = velY = velZ = 0; velAnim = 0;
+                emoteAtivo = ''; emoteTimer = 0; balloonEl.style.display = 'none';
+                if (invAberto()) alternarInv(false);
+                resetarQuebra();
+                meuChar.blob.visible = false;
+                sonoFx.classList.add('on');
+                tom(220, 330, 0.9, 0.08, 'sine');
+                return true;
+            }
+            function acordar(manha) {
+                if (!dormindo) return;
+                dormindo = false;
+                sonoFx.classList.remove('on');
+                const c = camaAtual; camaAtual = null;
+                meuChar.mesh.rotation.x = 0;
+                meuChar.blob.visible = true;
+                if (c) {
+                    const d = DIRS4[c.o], l = [-d[1], d[0]];
+                    const hx = c.fx + d[0], hz = c.fz + d[1];
+                    const cand = [[c.fx + l[0], c.fz + l[1]], [c.fx - l[0], c.fz - l[1]], [hx + l[0], hz + l[1]], [hx - l[0], hz - l[1]], [c.fx - d[0], c.fz - d[1]], [hx + d[0], hz + d[1]]];
+                    let ok = false;
+                    for (const p of cand) {
+                        if (!ehSolidoBloco(getBloco(p[0], c.fy, p[1])) && !ehSolidoBloco(getBloco(p[0], c.fy + 1, p[1])) && ehSolidoBloco(getBloco(p[0], c.fy - 1, p[1]))) {
+                            posX = p[0]; posZ = p[1]; posY = c.fy; ok = true; break;
+                        }
+                    }
+                    if (!ok) { posX = c.fx; posZ = c.fz; posY = c.fy + 1; }
+                }
+                velX = velY = velZ = 0;
+                if (manha) {
+                    if (clima === 'chuva') definirClima('limpo');
+                    msgSistema('Bom dia! Você acordou.');
+                }
+            }
+
             function colocarEm(nx, ny) {
+                if (dormindo) return;
                 const agora = performance.now();
                 if (agora - ultimoPlace < 130) return;
                 const a = lancarRaio(nx, ny, alvoPlace);
                 if (!a) return;
+                if (a.planta < 0 && !a.chao) {                 // tocar numa porta abre/fecha · tocar numa cama dorme
+                    if (ehPortaId(a.id)) { if (!colocarRep) { alternarPorta(a.x, a.y, a.z); ultimoPlace = agora + 250; } return; }
+                    if (ehCamaId(a.id)) { if (!colocarRep) { dormirNaCama(a.x, a.y, a.z, a.id); ultimoPlace = agora + 600; } return; }
+                }
                 const ti0 = barra[slotSel];
                 if (ti0 >= 0 && (modoJogo !== 'sobrevivencia' || barraQtd[slotSel] > 0)) {
                     if (ti0 === ITEM_ENXADA) { if (usarEnxada(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_TOCHA) { if (colocarTocha(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_CAMA) { if (colocarCama(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_PORTA) { if (colocarPorta(a)) ultimoPlace = agora; return; }
                     if (ti0 === ITEM_SEMENTE) { if (plantarSemente(a)) ultimoPlace = agora; return; }
-                    if (ti0 === ITEM_TRIGO || ti0 === ITEM_GRAVETO) return;     // itens que não se colocam
+                    if (ti0 === ITEM_TRIGO || ti0 === ITEM_GRAVETO || ti0 === ITEM_CARNE || ti0 === ITEM_ESPADA
+                        || ti0 === ITEM_PICARETA || ti0 === ITEM_PA || ti0 === ITEM_LANCA || ti0 === ITEM_CARVAO
+                        || ti0 === ITEM_BARRA_FERRO || ti0 === ITEM_BARRA_OURO || ti0 === ITEM_LA) return;   // itens que não se colocam
                 }
                 const px = a.px, py = a.py, pz = a.pz;
                 if (py < 0 || py >= YMAX - 2) return;
@@ -2959,6 +4093,7 @@
                 if (modoJogo === 'sobrevivencia' && barraQtd[slotSel] <= 0) return;
                 let id;
                 if (ti >= NTIPOS) {                          // planta: só em cima de grama/terra/etc., e uma por espaço
+                    if (ITENS[ti].planta === undefined) return;   // ferramentas e comida não são blocos
                     if (plantaTipo.has(numKey(px, py, pz))) return;
                     if (!ehApoio[getId(px, py - 1, pz)]) return;
                     id = NTIPOS + 1 + ITENS[ti].planta;
@@ -2988,19 +4123,37 @@
 
             function quebrarBloco(a) {
                 if (a.planta >= 5) { colherCultura(a); return; }
+                if (a.planta < 0 && (ehPortaId(a.id) || ehCamaId(a.id))) { quebrarEspecial(a.x, a.y, a.z, a.id); return; }
                 const id = a.id;
                 let drop = -1;
                 if (modoJogo === 'sobrevivencia') {
                     drop = a.planta >= 0 ? itemDePlanta(a.planta) : itemDeBloco(id);
-                    if (a.planta < 0 && id > ID_ARADO) drop = id === ID_MADURO ? ITEM_TRIGO : ITEM_SEMENTE;   // arado plantado devolve o que tinha
+                    if (a.planta < 0 && id > ID_ARADO && id <= ID_MADURO) drop = id === ID_MADURO ? ITEM_TRIGO : ITEM_SEMENTE;   // arado plantado devolve o que tinha
                     // grama (capim ou bloco de grama): 70% de chance de vir uma semente de trigo
                     if ((a.planta === 0 || (a.planta < 0 && id === ID.grama)) && Math.random() < CHANCE_SEMENTE) soltarItem(a.x, a.y, a.z, ITEM_SEMENTE, 0.3);
+                    // pedra e minérios só soltam material quando quebrados com picareta
+                    if (a.planta < 0 && ehPedra(id)) {
+                        if (barra[slotSel] === ITEM_PICARETA) {
+                            let itemSoltar = id - 1;
+                            if (id === ID.rocha || id === ID.musgo) itemSoltar = ID.pedra - 1;      // vira pedregulho
+                            else if (id === ID.minerio_carvao) itemSoltar = ITEM_CARVAO;
+                            else if (id === ID.minerio_ferro) itemSoltar = ITEM_MINERIO_FERRO;
+                            else if (id === ID.minerio_ouro) itemSoltar = ITEM_MINERIO_OURO;
+                            soltarItem(a.x, a.y, a.z, itemSoltar, 0.5);
+                        } else if (!avisoPedra) {
+                            avisoPedra = true;
+                            msgSistema('Precisa de uma picareta para tirar pedregulho/minério da pedra.');
+                        }
+                    }
+                    // tocha: ao quebrar, volta como item
+                    if (a.planta < 0 && ehTochaId(id)) soltarItem(a.x, a.y, a.z, ITEM_TOCHA, 0.3);
                     if (a.planta < 0) {                       // planta em cima do bloco quebrado também cai
                         const tpA = plantaTipo.get(numKey(a.x, a.y + 1, a.z));
                         if (tpA !== undefined && itemDePlanta(tpA) >= 0) soltarItem(a.x, a.y + 1, a.z, itemDePlanta(tpA), 0.2);
                     }
                 }
                 aplicarEdicao(a.x, a.y, a.z, 0);
+                if (a.planta < 0) { soltarTochasDe(a.x, a.y, a.z); desfazerSobre(a.x, a.y, a.z); }      // tochas apoiadas neste bloco caem junto
                 if (drop >= 0) soltarItem(a.x, a.y, a.z, drop, 0.5);
                 pend.delete(numKey(a.x, a.y, a.z));
                 bufferEdicoes.push([a.x, a.y, a.z, 0]);
@@ -3021,7 +4174,13 @@
                 if (k !== quebra.alvoKey) { quebra.alvoKey = k; quebra.prog = 0; quebra.tick = 0; quebra.id = a.id; }
                 if (quebra.delay > 0) return;
                 const dur = a.planta >= 0 ? 0.12 : Math.max(0.1, BLOCOS[NOME_ID[a.id]].dureza);
-                quebra.prog += dt / dur;
+                let tempo = dur;
+                if (a.planta < 0) {
+                    const it = barra[slotSel];
+                    if (it === ITEM_PICARETA && ehPedra(a.id)) tempo = dur / 3;    // picareta: pedra 3x mais rápido
+                    else if (it === ITEM_PA && ehTerra(a.id)) tempo = dur / 3;      // pá: terra/areia 3x mais rápido
+                }
+                quebra.prog += dt / tempo;
                 meuChar.quebrando = true;
                 if (!movendo) virarPara(a.x, a.z);
                 quebra.tick -= dt;
@@ -3047,7 +4206,7 @@
                     if (bp.setPointerCapture) { try { bp.setPointerCapture(e.pointerId); } catch (_) { } }
                     bp.classList.add('press');
                     colocarCentro();
-                    timer = setTimeout(() => { rep = setInterval(colocarCentro, 190); }, 320);
+                    timer = setTimeout(() => { rep = setInterval(() => { colocarRep = true; colocarCentro(); colocarRep = false; }, 190); }, 320);
                 });
                 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => bp.addEventListener(ev, parar));
                 bp.addEventListener('contextmenu', e => e.preventDefault());
@@ -3285,10 +4444,10 @@
                         for (const k in ret.blocos) {
                             const [bx, by, bz] = k.split(',').map(Number);
                             const cod = ret.blocos[k];
-                            if (cod >= 0 && cod <= ID_MADURO) enfileirar(bx, by, bz, cod);
+                            if (cod >= 0 && cod <= ID_MAXBLOCO) enfileirar(bx, by, bz, cod);
                         }
                     } else if (ret.eventos) {
-                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= ID_MADURO) enfileirar(ev.x, ev.y, ev.z, ev.b); });
+                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= ID_MAXBLOCO) enfileirar(ev.x, ev.y, ev.z, ev.b); });
                     }
                     if (ret.seq !== undefined) ultimoSeq = ret.seq;
 
@@ -3586,10 +4745,75 @@
             // ============================================================
             const CICLO_S = 1200;               // duração de um dia completo (s)
             let offsetServidor = 0;             // relógio servidor - relógio local (ms)
+            let tempoBase = null, tempoBaseMs = 0;   // tempo forçado por /dia e /noite
+            let intChuva = 0;                    // 0 = sem chuva … 1 = chuva forte (sobe/desce devagar)
+            let clima = 'limpo';                 // 'limpo' | 'chuva'
+            let climaTimer = 90 + Math.random() * 120;   // segundos até mudar o clima sozinho
+
+            function tempoDoDia() {
+                if (tempoBase !== null) return (tempoBase + (Date.now() - tempoBaseMs) / 1000 / CICLO_S) % 1;
+                return (((Date.now() + offsetServidor) / 1000) % CICLO_S) / CICLO_S;
+            }
+            function definirTempo(t) {
+                tempoBase = ((t % 1) + 1) % 1;
+                tempoBaseMs = Date.now();
+                msgSistema(tempoBase > 0.5 ? 'Agora é noite.' : 'Agora é dia.');
+            }
+            function definirClima(c) {
+                clima = c;
+                climaTimer = 120 + Math.random() * 180;
+                if (c === 'chuva') {
+                    msgSistema('Começou a chover.');
+                    tom(300, 180, 0.5, 0.12, 'sine');
+                } else {
+                    msgSistema('O céu está limpo.');
+                }
+            }
+            function atualizarChuva(dt) {
+                // a chuva vai e volta aos poucos: alguns pingos, depois cai tudo
+                const alvo = clima === 'chuva' ? 1 : 0;
+                const passo = dt / (alvo ? 35 : 28);
+                intChuva = alvo > intChuva ? Math.min(alvo, intChuva + passo) : Math.max(alvo, intChuva - passo);
+                atualizarSomChuva(dt);
+                const vis = intChuva > 0.004;
+                chuvaPts.visible = vis;
+                if (chuvaFxEl) chuvaFxEl.style.opacity = String(Math.min(1, intChuva * 1.5));
+                if (!vis) return;
+                const n = Math.max(1, Math.floor(CHUVA_N * intChuva * intChuva));   // começa com poucos pingos
+                chuvaGeo.setDrawRange(0, n);
+                chuvaMat.opacity = 0.55 * Math.min(1, 0.35 + intChuva * 1.5);
+                const arr = chuvaPos;
+                for (let i = 0; i < n; i++) {
+                    let y = arr[i * 3 + 1] - chuvaVel[i] * dt;
+                    if (y < -8) {
+                        arr[i * 3] = (Math.random() - 0.5) * 36;
+                        arr[i * 3 + 2] = (Math.random() - 0.5) * 36;
+                        y = 18 + Math.random() * 8;
+                    }
+                    arr[i * 3 + 1] = y;
+                }
+                chuvaGeo.attributes.position.needsUpdate = true;
+                chuvaPts.position.set(posX, posY, posZ);
+            }
+            // som da chuva (baixo, acompanha a intensidade) e abaixa o som ambiente enquanto chove
+            function atualizarSomChuva(dt) {
+                if (!audio || !audio.chuvaG) return;
+                const exposto = posY >= altDe(Math.floor(posX), Math.floor(posZ)) - 2;
+                const volAlvo = (exposto ? 0.11 : 0.03) * intChuva;
+                const freqAlvo = exposto ? 7000 : 700;
+                const k = Math.min(1, dt * 2);
+                audio.chuvaVol += (volAlvo - audio.chuvaVol) * k;
+                audio.chuvaFreq += (freqAlvo - audio.chuvaFreq) * k;
+                audio.chuvaG.gain.value = audio.chuvaVol;
+                audio.chuvaF.frequency.value = audio.chuvaFreq;
+                audio.ambG.gain.value = 1 - 0.8 * intChuva;
+                audio.chuvaInt = intChuva;
+            }
             const horaEl = document.getElementById('hora');
             let horaTxt = '';
             const C_NOITE = new THREE.Color(0x0b1114), C_DIA = new THREE.Color(0x87b6e6), C_ALBA = new THREE.Color(0xe08a54);
             const C_HEMI_DIA = new THREE.Color(0xcfe6ff), C_SOLO_DIA = new THREE.Color(0x5a5a40), C_SOL = new THREE.Color(0xfff0d0);
+            const C_CHUVA = new THREE.Color(0x4a5666);      // tom cinza dos dias de chuva
             const _cor = new THREE.Color();
             const estrelas = ceu.userData.est, luaMesh = ceu.userData.lua;
             const solMesh = (() => {
@@ -3609,28 +4833,31 @@
 
             function atualizarCicloDia() {
                 // t: 0 = nascer do sol · 0.25 = meio-dia · 0.5 = pôr do sol · 0.75 = meia-noite
-                const t = (((Date.now() + offsetServidor) / 1000) % CICLO_S) / CICLO_S;
+                const t = tempoDoDia();
                 const a = t * Math.PI * 2, s = Math.sin(a), c = Math.cos(a);
                 const k = clamp((s + 0.12) / 0.37, 0, 1);
                 const d = k * k * (3 - 2 * k);                          // 0 noite … 1 dia
                 const crep = Math.max(0, 1 - Math.abs(s) / 0.25);        // amanhecer / entardecer
+                const ic = intChuva, chuva = ic > 0.5;
                 DIA_V = d;
 
                 _cor.copy(C_NOITE).lerp(C_DIA, d).lerp(C_ALBA, crep * 0.6);
+                if (ic > 0) _cor.lerp(C_CHUVA, 0.55 * ic);
                 scene.background.copy(_cor);
                 scene.fog.color.copy(_cor);
-                hemi.intensity = 0.75 + 0.35 * d;
+                hemi.intensity = (0.75 + 0.35 * d) * (1 - 0.38 * ic);
                 hemi.color.setHex(0x8aa4bc).lerp(C_HEMI_DIA, d);
+                if (ic > 0) hemi.color.lerp(C_CHUVA, 0.45 * ic);
                 hemi.groundColor.setHex(0x1c1a14).lerp(C_SOLO_DIA, d);
                 lua.color.setHex(0x9db4e8).lerp(C_SOL, d);
-                lua.intensity = 0.7 + 0.35 * d - 0.3 * crep;
+                lua.intensity = (0.7 + 0.35 * d - 0.3 * crep) * (1 - 0.65 * ic);
                 lua.position.set(c * 50 * (s >= 0 ? 1 : -1), 40 + 25 * Math.abs(s), -20);
 
-                estrelas.material.opacity = 0.75 * (1 - d);
+                estrelas.material.opacity = 0.75 * (1 - d) * (1 - 0.7 * ic);
                 solMesh.position.set(c * 110, s * 110, -35);
                 luaMesh.position.set(-c * 110, -s * 110, 35);
-                solMesh.visible = s > -0.1;
-                luaMesh.visible = s < 0.1;
+                solMesh.visible = s > -0.1 && !chuva;
+                luaMesh.visible = s < 0.1 && !chuva;
                 solMesh.lookAt(ceu.position);
                 luaMesh.lookAt(ceu.position);
 
@@ -3653,7 +4880,7 @@
                 RAIO: 0.35, ALTURA: 1.1, VEL: 1.25
             };
             const mobs = [];
-            let tSpawn = 0;
+            let tSpawn = 0, tSpawnZ = 4;
 
             // ---------- Modelo (caixas com textura pixelada) ----------
             const mobMat = (hex, q) => new THREE.MeshLambertMaterial({
@@ -3702,13 +4929,69 @@
                     la.position.set(0, cs / 2 + 0.04, cs * 0.42);
                     cabeca.add(la);
                 }
+                let mFoc = null;
                 if (porco) {
-                    const foc = box(0.26, 0.18, 0.1, mobMat(0xe58a85, 0.08));
+                    mFoc = mobMat(0xe58a85, 0.08);
+                    const foc = box(0.26, 0.18, 0.1, mFoc);
                     foc.position.set(0, -0.08, cs + 0.04);
                     cabeca.add(foc);
                 }
                 g.add(cabeca);
-                return { grupo: g, pernas, cabeca };
+                const mats = [mCorpo, mPerna, mCab, mRosto];
+                if (mFoc) mats.push(mFoc);
+                return { grupo: g, pernas, cabeca, mats };
+            }
+
+            // ---------- Modelo do zumbi (pele verde, camisa azul, braços esticados) ----------
+            function criarZumbiModelo() {
+                const pele = 0x4e7f3a, camisa = 0x2f5d7a, calca = 0x2b3340;
+                const mPele = mobMat(pele, 0.12), mCamisa = mobMat(camisa, 0.1), mCalca = mobMat(calca, 0.1);
+                const mRosto = new THREE.MeshLambertMaterial({
+                    map: pixTex(8, 8, (p) => {
+                        const r = criarPRNG(21);
+                        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) p(x, y, variaCor(pele, 0.1, r));
+                        p(1, 3, '#0f1a0c'); p(2, 3, '#0f1a0c'); p(5, 3, '#0f1a0c'); p(6, 3, '#0f1a0c');
+                        p(1, 4, '#16240f'); p(2, 4, '#16240f'); p(5, 4, '#16240f'); p(6, 4, '#16240f');
+                        for (let x = 2; x <= 5; x++) p(x, 6, '#22331b');
+                    }, false)
+                });
+                const box = (w, h, l, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, l), m);
+                const g = new THREE.Group();
+                const pH = 0.72;                                        // altura das pernas
+                const corpo = box(0.62, 0.8, 0.34, mCamisa);
+                corpo.position.y = pH + 0.4;
+                g.add(corpo);
+                const cabeca = new THREE.Group();                      // pivô no pescoço
+                cabeca.position.set(0, pH + 0.8, 0);
+                const cm = box(0.5, 0.5, 0.5, [mPele, mPele, mPele, mPele, mRosto, mPele]);
+                cm.position.z = 0.25;
+                cabeca.add(cm);
+                const crina = box(0.52, 0.12, 0.5, mPele);
+                crina.position.set(0, 0.2, 0.25);
+                cabeca.add(crina);
+                g.add(cabeca);
+                const pernas = [];
+                for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+                    const pv = new THREE.Group();                      // pivô no topo da perna
+                    pv.position.set(sx * 0.16, pH, sz * 0.1);
+                    const pm = box(0.24, pH, 0.24, mCalca);
+                    pm.position.y = -pH / 2;
+                    pv.add(pm); g.add(pv); pernas.push(pv);
+                }
+                const bracos = [];
+                for (const sx of [1, -1]) {                            // braços esticados para frente
+                    const pv = new THREE.Group();
+                    pv.position.set(sx * 0.42, pH + 0.7, 0);
+                    const bm = box(0.22, 0.22, 0.8, mCamisa);
+                    bm.position.z = 0.4;
+                    pv.add(bm);
+                    const mao = box(0.21, 0.21, 0.22, mPele);
+                    mao.position.z = 0.88;
+                    pv.add(mao);
+                    pv.rotation.x = 0.22;
+                    g.add(pv); bracos.push(pv);
+                }
+                return { grupo: g, pernas, cabeca, bracos, mats: [mPele, mCamisa, mCalca, mRosto] };
             }
 
             // ---------- Física / colisão ----------
@@ -3718,7 +5001,8 @@
                 const z0 = Math.floor(z - r + 0.5), z1 = Math.floor(z + r + 0.5 - 1e-4);
                 const y0 = Math.floor(y), y1 = Math.floor(y + MOB.ALTURA - 1e-4);
                 for (let ix = x0; ix <= x1; ix++) for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) {
-                    if (getBloco(ix, iy, iz)) return true;
+                    const b = getBloco(ix, iy, iz);
+                    if (bateBloco(b, ix, iz, x - r, x + r, z - r, z + r)) return true;
                 }
                 return false;
             }
@@ -3758,11 +5042,15 @@
 
             // ---------- Spawn / despawn ----------
             function criarMob(tipo, x, y, z) {
-                const mod = criarMobModelo(tipo);
+                const zumbi = tipo === 'zumbi';
+                const mod = zumbi ? criarZumbiModelo() : criarMobModelo(tipo);
                 const m = {
                     tipo, x, y, z, rot: Math.random() * 6.283, alvoRot: 0, vy: 0, noChao: true,
                     estado: 0, t: 1 + Math.random() * 3, comeu: false,   // 0 parado · 1 andando · 2 comendo
                     vel: MOB.VEL * (0.85 + Math.random() * 0.3), anim: Math.random() * 6, cabRot: 0,
+                    hp: zumbi ? 20 : 4, hpMax: zumbi ? 20 : 4, hurt: 0, morto: false, mats: mod.mats,
+                    hostil: zumbi, surgindo: zumbi ? 1.6 : 0, bracos: mod.bracos || null,
+                    danoEspera: 0, queimando: 0,
                     mesh: mod.grupo, pernas: mod.pernas, cabeca: mod.cabeca, blob: criarBlob()
                 };
                 m.alvoRot = m.rot;
@@ -3782,7 +5070,6 @@
                 const ang = Math.random() * 6.283;
                 const d = MOB.DIST_MIN + Math.random() * (MOB.DIST_MAX - MOB.DIST_MIN);
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
-                if (Math.abs(x) > LIMITE_MUNDO - 4 || Math.abs(z) > LIMITE_MUNDO - 4) return false;
                 if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;       // só em terreno já gerado
                 for (const m of mobs) if (Math.hypot(m.x - x, m.z - z) < MOB.SEP_GRUPO) return false;
                 const y = soloMob(x, z);
@@ -3798,10 +5085,57 @@
                 return true;
             }
 
+            // Zumbis: só no modo sobrevivência, à noite, brotam da terra perto do jogador
+            function tentarSpawnZumbi() {
+                if (modoJogo !== 'sobrevivencia') return false;
+                if (dormindo || DIA_V > 0.34) return false;                      // só à noite (ou bem no entardecer)
+                let nZ = 0;
+                for (const m of mobs) if (m.hostil) nZ++;
+                if (nZ >= 8) return false;
+                const ang = Math.random() * 6.283;
+                const d = 13 + Math.random() * 25;
+                const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
+                if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;
+                const y = soloMob(x, z);
+                if (y < 0) return false;
+                criarMob('zumbi', x, y, z);
+                return true;
+            }
+
             // ---------- IA de um mob ----------
             function atualizarMob(m, dt) {
                 if (!chunks.has(ckKey(Math.floor(m.x + 0.5) >> 4, Math.floor(m.z + 0.5) >> 4))) return;
+                if (m.hurt > 0) {                                    // pisca vermelho e volta ao normal
+                    m.hurt -= dt;
+                    if (m.hurt <= 0) {
+                        m.hurt = 0;
+                        m.mesh.scale.set(1, 1, 1);
+                        for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x000000);
+                    }
+                }
                 m.t -= dt;
+
+                if (m.surgindo > 0) {                       // zumbi brotando da terra
+                    m.surgindo -= dt;
+                    m.anim += dt * 2.2;
+                    const sw = Math.sin(m.anim * 3) * 0.3;
+                    m.pernas[0].rotation.x = sw; m.pernas[3].rotation.x = sw;
+                    m.pernas[1].rotation.x = -sw; m.pernas[2].rotation.x = -sw;
+                    if (m.bracos) {
+                        m.bracos[0].rotation.x = 0.22 + Math.sin(m.anim * 2.4) * 0.18;
+                        m.bracos[1].rotation.x = 0.22 - Math.sin(m.anim * 2.4) * 0.18;
+                    }
+                    if (Math.random() < dt * 12) {
+                        explodirBloco(Math.round(m.x + (Math.random() - 0.5)), Math.floor(m.y), Math.round(m.z + (Math.random() - 0.5)), 0, 0x6b4a2a);
+                    }
+                    return;
+                }
+                if (m.hostil && DIA_V > 0.72) {             // queima ao amanhecer
+                    m.queimando += dt;
+                    m.hp -= dt * 2.2;
+                    if (Math.random() < dt * 7) explodirBloco(Math.round(m.x), Math.floor(m.y + 1.1), Math.round(m.z), 0, 0x8a8a8a);
+                    if (m.hp <= 0) { matarMob(m); return; }
+                }
 
                 // máquina de estados (parado → anda ou come → parado …)
                 if (m.estado === 0) {
@@ -3818,7 +5152,26 @@
 
                 // movimento horizontal
                 let v = 0;
-                if (m.estado === 1) {
+                if (m.hostil) {                                   // zumbi: persegue o jogador
+                    const dx = posX - m.x, dz = posZ - m.z;
+                    const dd = Math.hypot(dx, dz);
+                    if (dd > 0.05) {
+                        m.rot = lerpAng(m.rot, Math.atan2(dx, dz), 1 - Math.exp(-7 * dt));
+                        v = dd > 1.5 ? m.vel * 1.25 : 0;
+                    }
+                    const fx = Math.sin(m.rot), fz = Math.cos(m.rot);
+                    if (m.noChao && quedaEm(m.x + fx * 0.8, m.y, m.z + fz * 0.8) > 2) {
+                        m.rot = m.alvoRot = m.rot + Math.PI * (0.6 + Math.random() * 0.8);
+                        v = 0;
+                    }
+                    // ataque
+                    m.danoEspera -= dt;
+                    if (dd < 1.9 && m.danoEspera <= 0 && Math.abs(m.y - posY) < 2.2) {
+                        machucarJogador(2, dx / (dd || 1), dz / (dd || 1));
+                        m.danoEspera = 1.1;
+                        m.golpe = 0.25;
+                    }
+                } else if (m.estado === 1) {
                     m.rot = lerpAng(m.rot, m.alvoRot, 1 - Math.exp(-5 * dt));
                     v = m.vel;
                     const fx = Math.sin(m.rot), fz = Math.cos(m.rot);
@@ -3842,8 +5195,6 @@
                             m.alvoRot = m.rot + Math.PI * (0.5 + Math.random());
                         }
                     }
-                    m.x = clamp(m.x, -LIMITE_MUNDO + 2, LIMITE_MUNDO - 2);
-                    m.z = clamp(m.z, -LIMITE_MUNDO + 2, LIMITE_MUNDO - 2);
                 }
 
                 // gravidade
@@ -3872,6 +5223,11 @@
                     tSpawn = MOB.INTERVALO;
                     for (let i = 0; i < 6 && !tentarSpawn(); i++);
                 }
+                tSpawnZ -= dt;
+                if (tSpawnZ <= 0) {
+                    tSpawnZ = 2.5 + Math.random() * 3;
+                    for (let i = 0; i < 3 && !tentarSpawnZumbi(); i++);
+                }
                 for (let i = mobs.length - 1; i >= 0; i--) {
                     const m = mobs[i];
                     if (m.y < -8 || Math.hypot(m.x - posX, m.z - posZ) > MOB.DESPAWN) { removerMob(i); continue; }
@@ -3888,12 +5244,585 @@
                     }
                 }
                 for (const m of mobs) {
-                    m.mesh.position.set(m.x, m.y, m.z);
+                    const desc = m.surgindo > 0 ? 1.9 * (1 - clamp(1 - m.surgindo / 1.6, 0, 1)) : 0;
+                    m.mesh.position.set(m.x, m.y - desc, m.z);
                     m.mesh.rotation.y = m.rot;
+                    if (m.bracos && m.surgindo <= 0) {
+                        const bal = Math.sin(m.anim * 2.2) * 0.12;
+                        m.bracos[0].rotation.x = 0.22 + bal; m.bracos[1].rotation.x = 0.22 - bal;
+                    }
                     atualizarBlob(m, m.x, m.y, m.z);
                 }
             }
             for (let i = 0; i < 4; i++) tentarSpawn();   // população inicial
+
+            // ============================================================
+            // GRILOS — no máximo 2 no mapa: saltam pela grama e fazem cri-cri
+            // ============================================================
+            const GRILO_MAX = 2;
+            const grilos = [];
+            let tSpawnGrilo = 2;
+            const GR = { geo: {}, mat: {} };
+            const grGeo = (w, h, l) => GR.geo[w + ',' + h + ',' + l] || (GR.geo[w + ',' + h + ',' + l] = new THREE.BoxGeometry(w, h, l));
+            const grMat = (hex) => GR.mat[hex] || (GR.mat[hex] = new THREE.MeshLambertMaterial({ color: hex }));
+            const solidoG = (x, y, z) => { const b = getBloco(x, y, z); return ehSolidoBloco(b); };
+
+            function criarGrilo(x, y, z) {
+                const g = new THREE.Group();
+                g.rotation.order = 'YXZ';
+                const caixa = (w, h, l, hex, px, py, pz) => {
+                    const m = new THREE.Mesh(grGeo(w, h, l), grMat(hex));
+                    m.position.set(px, py, pz);
+                    return m;
+                };
+                const corpo = new THREE.Group();                      // treme quando canta
+                g.add(corpo);
+                corpo.add(caixa(0.13, 0.1, 0.27, 0x3b2514, 0, 0.15, -0.02));
+                const asas = caixa(0.14, 0.022, 0.21, 0x6a431f, 0, 0.206, -0.05);
+                corpo.add(asas);
+                corpo.add(caixa(0.1, 0.1, 0.1, 0x2c1a0e, 0, 0.16, 0.17));
+                corpo.add(caixa(0.028, 0.028, 0.02, 0xb8d65a, -0.04, 0.18, 0.222));
+                corpo.add(caixa(0.028, 0.028, 0.02, 0xb8d65a, 0.04, 0.18, 0.222));
+                const antenas = [];
+                for (const sx of [-1, 1]) {
+                    const pv = new THREE.Group();
+                    pv.position.set(sx * 0.03, 0.2, 0.21);
+                    pv.add(caixa(0.012, 0.012, 0.34, 0x1e130a, 0, 0, 0.17));
+                    pv.rotation.set(-0.3, sx * 0.25, 0);
+                    corpo.add(pv); antenas.push(pv);
+                }
+                const pernas = [];
+                const perna = (sx, z, esp, alt, hex) => {
+                    const pv = new THREE.Group();
+                    pv.position.set(sx * 0.075, 0.12, z);
+                    pv.add(caixa(esp, alt, esp, hex, 0, -alt / 2, 0));
+                    corpo.add(pv);
+                    return pv;
+                };
+                for (const sx of [-1, 1]) {
+                    pernas.push({ pv: perna(sx, 0.09, 0.024, 0.12, 0x2c1a0e), tipo: 'f' });
+                    pernas.push({ pv: perna(sx, 0.0, 0.024, 0.12, 0x2c1a0e), tipo: 'm' });
+                    pernas.push({ pv: perna(sx, -0.1, 0.038, 0.16, 0x4a2e17), tipo: 't' });
+                }
+                const blob = criarBlob();
+                g.position.set(x, y, z);
+                scene.add(g);
+                grilos.push({
+                    x, y, z, vy: 0, vh: 0, rot: Math.random() * 6.283, noChao: true, g, corpo, asas, antenas, pernas, blob,
+                    estado: 0, t: 1 + Math.random() * 2, saltos: 0, cantaT: 0.6 + Math.random() * 1.5, trino: 0, fase: Math.random() * 6
+                });
+            }
+            function removerGrilo(i) {
+                const m = grilos[i];
+                scene.remove(m.g); scene.remove(m.blob);     // geometrias e materiais são compartilhados
+                grilos.splice(i, 1);
+            }
+            // ============================================================
+            // CORUJAS — surgem à noite no topo das árvores, descem ao chão para bicar e pular,
+            // e voltam para uma árvore quando alguém chega perto
+            // ============================================================
+            const CORUJA = { MAX: 4, SEP: 14, DIST_MIN: 12, DIST_MAX: 34, ALERTA_ARV: 6.5, ALERTA_CHAO: 8, DESPAWN: 90 };
+            const corujas = [];
+            let tSpawnCoruja = 4;
+            const _pvc = new THREE.Vector3();
+            const ehArvoreBloco = (b) => b === ID.log || b === ID.betula || b === ID.abeto || b === ID.carvalho_negro
+                || b === ID.tronco_morto || ehFolha[b] === 1;
+
+            // topo de uma árvore (altura onde a coruja pousa) na coluna x,z — ou -1
+            function topoArvore(x, z) {
+                if (!chunks.has(ckKey(x >> 4, z >> 4))) return -1;
+                const h = altDe(x, z);
+                for (let y = Math.min(YMAX - 3, h + 24); y >= h; y--) {
+                    const b = getBloco(x, y, z);
+                    if (!b) continue;
+                    if (!ehArvoreBloco(b)) return -1;
+                    if (getBloco(x, y + 1, z) || getBloco(x, y + 2, z)) return -1;
+                    if (y - h < 3) return -1;                       // tem que estar bem acima do chão
+                    return y + 1;
+                }
+                return -1;
+            }
+            function acharArvore(cx, cz, dmin, dmax, ax, az, evitar) {
+                for (let i = 0; i < 90; i++) {
+                    const ang = Math.random() * 6.283, d = dmin + Math.random() * (dmax - dmin);
+                    const x = Math.round(cx + Math.cos(ang) * d), z = Math.round(cz + Math.sin(ang) * d);
+                    if (evitar && Math.hypot(x - ax, z - az) < evitar) continue;
+                    const y = topoArvore(x, z);
+                    if (y >= 0) return { x, y, z };
+                }
+                return null;
+            }
+
+            function criarCorujaModelo() {
+                const mCorpo = mobMat(0x6b4c33, 0.3), mAsa = mobMat(0x56392a, 0.35), mCauda = mobMat(0x4f3626, 0.25);
+                const mPe = mobMat(0xc99a3b, 0.1), mBico = mobMat(0xe08a2b, 0.1);
+                const mBarriga = new THREE.MeshLambertMaterial({
+                    map: pixTex(8, 8, (p) => {
+                        const r = criarPRNG(31);
+                        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++)
+                            p(x, y, (y % 2 === 1 && (x + y) % 3 === 0) ? '#7a5a3c' : variaCor(0xe0d0ac, 0.12, r));
+                    }, false)
+                });
+                const mRosto = new THREE.MeshLambertMaterial({
+                    map: pixTex(8, 8, (p) => {
+                        const r = criarPRNG(37);
+                        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) p(x, y, variaCor(0xd9c7a0, 0.1, r));
+                        for (const ex of [1, 5]) {                          // olhos grandes e amarelos
+                            p(ex, 2, '#ffd23f'); p(ex + 1, 2, '#ffd23f'); p(ex, 3, '#ffd23f'); p(ex + 1, 3, '#ffd23f');
+                        }
+                        p(2, 3, '#111111'); p(5, 3, '#111111');
+                        p(0, 0, '#6b4c33'); p(1, 0, '#6b4c33'); p(6, 0, '#6b4c33'); p(7, 0, '#6b4c33');
+                    }, false)
+                });
+                mRosto.emissive.setHex(0x3a3a3a); mRosto.emissiveMap = mRosto.map;   // olhos visíveis à noite
+                const box = (w, h, l, m) => new THREE.Mesh(new THREE.BoxGeometry(w, h, l), m);
+                const g = new THREE.Group();
+
+                for (const sx of [-1, 1]) {                                  // pés
+                    const pe = box(0.07, 0.09, 0.12, mPe); pe.position.set(sx * 0.08, 0.045, 0.02); g.add(pe);
+                }
+                const corpo = box(0.34, 0.38, 0.28, [mCorpo, mCorpo, mCorpo, mCorpo, mBarriga, mCorpo]);
+                corpo.position.y = 0.28; g.add(corpo);
+
+                const cabeca = new THREE.Group();                            // pivô no pescoço
+                cabeca.position.set(0, 0.46, 0.02);
+                const cm = box(0.38, 0.30, 0.30, [mCorpo, mCorpo, mCorpo, mCorpo, mRosto, mCorpo]);
+                cm.position.y = 0.15; cabeca.add(cm);
+                const bico = box(0.07, 0.09, 0.07, mBico); bico.position.set(0, 0.1, 0.18); cabeca.add(bico);
+                for (const sx of [-1, 1]) {                                  // "orelhas" de pena
+                    const tf = box(0.07, 0.13, 0.07, mCorpo);
+                    tf.position.set(sx * 0.14, 0.36, 0); tf.rotation.z = -sx * 0.25; cabeca.add(tf);
+                }
+                g.add(cabeca);
+
+                const asas = [];
+                for (const sx of [1, -1]) {                                  // pivô no ombro; fechada = pendurada
+                    const pv = new THREE.Group(); pv.position.set(sx * 0.19, 0.44, 0);
+                    const am = box(0.05, 0.30, 0.24, mAsa); am.position.y = -0.15;
+                    pv.add(am); g.add(pv); asas.push({ pv, sx });
+                }
+                const cauda = box(0.16, 0.04, 0.2, mCauda);
+                cauda.position.set(0, 0.2, -0.22); cauda.rotation.x = 0.5; g.add(cauda);
+
+                return { grupo: g, cabeca, asas, mats: [mCorpo, mAsa, mCauda, mPe, mBico, mBarriga, mRosto] };
+            }
+            function criarCoruja(x, y, z) {
+                const mod = criarCorujaModelo();
+                const c = {
+                    x, y, z, rot: Math.random() * 6.283, estado: 'poleiro', sub: 'parado', t: 10 + Math.random() * 15,
+                    gritoT: 1.5 + Math.random() * 4, piando: 0, voo: null, prox: 'poleiro', pulo: null, partT: 0, partDir: 0,
+                    tempoChao: 0, base: { x, z }, olhar: 0, fase: Math.random() * 6, alertaCd: 0, bic: 0,
+                    mesh: mod.grupo, cabeca: mod.cabeca, asas: mod.asas, mats: mod.mats, blob: criarBlob()
+                };
+                c.mesh.scale.setScalar(1.15);
+                c.mesh.position.set(x, y, z);
+                scene.add(c.mesh);
+                corujas.push(c);
+            }
+            function removerCoruja(i) {
+                const c = corujas[i];
+                scene.remove(c.mesh); scene.remove(c.blob);
+                descartarPersonagem(c);
+                corujas.splice(i, 1);
+            }
+            function tentarSpawnCoruja() {
+                const a = acharArvore(posX, posZ, CORUJA.DIST_MIN, CORUJA.DIST_MAX, 0, 0, 0);
+                if (!a) return false;
+                for (const c of corujas) if (Math.hypot(c.x - a.x, c.z - a.z) < CORUJA.SEP) return false;
+                criarCoruja(a.x, a.y, a.z);
+                return true;
+            }
+
+            // piado com volume e direção (esquerda/direita) conforme a posição da coruja
+            function piar(c, curto) {
+                c.piando = curto ? 0.5 : 1.2;
+                const dj = Math.hypot(c.x - posX, c.y - posY, c.z - posZ), alc = 60;
+                if (dj >= alc) return;
+                camera.updateMatrixWorld();
+                _pvc.set(c.x, c.y + 0.4, c.z); camera.worldToLocal(_pvc);
+                const pan = _pvc.x / Math.max(1, _pvc.length());
+                sfxCoruja(0.22 * Math.pow(1 - dj / alc, 2) * (1 - 0.5 * intChuva), pan, curto);
+            }
+            // jogador (ou outro jogador) perto demais?
+            function ameacaPerto(c, raio) {
+                if (Math.abs(c.y - posY) < 14 && Math.hypot(c.x - posX, c.z - posZ) < raio) return { x: posX, z: posZ };
+                for (const k in remotos) {
+                    const r = remotos[k];
+                    if (!r || !r.mesh) continue;
+                    const rp = r.mesh.position;
+                    if (Math.abs(c.y - rp.y) < 14 && Math.hypot(c.x - rp.x, c.z - rp.z) < raio) return { x: rp.x, z: rp.z };
+                }
+                return null;
+            }
+            function voarPara(c, dest, prox) {
+                const dx = dest.x - c.x, dz = dest.z - c.z, dist = Math.hypot(dx, dz);
+                c.voo = {
+                    x0: c.x, y0: c.y, z0: c.z, x1: dest.x, y1: dest.y, z1: dest.z, s: 0,
+                    dur: Math.max(0.9, dist / 6.5), arco: Math.min(4, 1 + dist * 0.18)
+                };
+                if (dist > 0.1) c.rot = Math.atan2(dx, dz);
+                c.estado = 'voando'; c.prox = prox; c.pulo = null;
+            }
+            function partir(c) {                         // amanheceu: sobe e some
+                c.estado = 'partindo'; c.partT = 5.5; c.partDir = Math.random() * 6.283; c.rot = c.partDir;
+            }
+            // volta para uma árvore (longe de quem se aproximou)
+            function fugirParaArvore(c, ameaca) {
+                const ax = ameaca ? ameaca.x : c.x, az = ameaca ? ameaca.z : c.z;
+                const a = acharArvore(c.x, c.z, 12, 26, ax, az, 14);
+                if (!a) { c.alertaCd = 3; return false; }
+                piar(c, true);
+                voarPara(c, a, 'poleiro');
+                return true;
+            }
+            // chão perto da árvore para descer e bicar
+            function acharChao(c) {
+                for (let i = 0; i < 20; i++) {
+                    const ang = Math.random() * 6.283, d = 5 + Math.random() * 5;
+                    const x = Math.round(c.x + Math.cos(ang) * d), z = Math.round(c.z + Math.sin(ang) * d);
+                    if (!chunks.has(ckKey(x >> 4, z >> 4))) continue;
+                    if (Math.hypot(x - posX, z - posZ) < 10) continue;
+                    const y = soloMob(x, z);
+                    if (y >= 0) return { x, y, z };
+                }
+                return null;
+            }
+
+            function atualizarCorujas(dt, t) {
+                tSpawnCoruja -= dt;
+                if (tSpawnCoruja <= 0) {
+                    tSpawnCoruja = 2.5 + Math.random() * 3.5;
+                    if (DIA_V < 0.38 && corujas.length < CORUJA.MAX)
+                        for (let n = 0; n < 3 && !tentarSpawnCoruja(); n++);
+                }
+                for (let i = corujas.length - 1; i >= 0; i--) {
+                    const c = corujas[i];
+                    if (c.y < -8 || Math.hypot(c.x - posX, c.z - posZ) > CORUJA.DESPAWN) { removerCoruja(i); continue; }
+                    if (!chunks.has(ckKey(Math.floor(c.x + 0.5) >> 4, Math.floor(c.z + 0.5) >> 4))) continue;
+                    c.alertaCd = Math.max(0, c.alertaCd - dt);
+                    c.piando = Math.max(0, c.piando - dt);
+                    let bater = false, inclina = 0;
+
+                    if (c.estado === 'poleiro' || c.estado === 'chao') {
+                        if (DIA_V > 0.5) { partir(c); }
+                        else if (!solidoG(Math.floor(c.x + 0.5), Math.floor(c.y - 0.5), Math.floor(c.z + 0.5))) {
+                            // o apoio sumiu (árvore cortada): procura outra
+                            if (c.alertaCd <= 0 && !fugirParaArvore(c, null)) partir(c);
+                        }
+                    }
+
+                    if (c.estado === 'poleiro') {
+                        const am = c.alertaCd <= 0 ? ameacaPerto(c, CORUJA.ALERTA_ARV) : null;
+                        if (am && fugirParaArvore(c, am)) { /* voou */ }
+                        else {
+                            c.gritoT -= dt;
+                            if (c.gritoT <= 0) { c.gritoT = 6 + Math.random() * 9; piar(c, false); }
+                            c.t -= dt;
+                            if (c.t <= 0) {
+                                const longe = Math.hypot(c.x - posX, c.z - posZ) > 14;
+                                const alvo = (longe && Math.random() < 0.55) ? acharChao(c) : null;
+                                if (alvo) voarPara(c, alvo, 'chao');
+                                else c.t = 8 + Math.random() * 12;
+                            }
+                        }
+                    } else if (c.estado === 'chao') {
+                        const am = c.alertaCd <= 0 ? ameacaPerto(c, CORUJA.ALERTA_CHAO) : null;
+                        if (am && fugirParaArvore(c, am)) { /* voou */ }
+                        else {
+                            c.tempoChao -= dt;
+                            if (c.tempoChao <= 0 && c.sub !== 'pulando') {
+                                if (!fugirParaArvore(c, null)) c.tempoChao = 3;
+                            } else if (c.sub === 'pulando') {
+                                const p = c.pulo;
+                                p.s = Math.min(1, p.s + dt / 0.38);
+                                c.x = p.x0 + (p.x1 - p.x0) * p.s; c.z = p.z0 + (p.z1 - p.z0) * p.s;
+                                c.y = p.y0 + (p.y1 - p.y0) * p.s + 0.45 * 4 * p.s * (1 - p.s);
+                                if (p.s >= 1) { c.y = p.y1; c.sub = 'parado'; c.t = 0.4 + Math.random() * 1.2; c.pulo = null; }
+                            } else {
+                                c.t -= dt;
+                                if (c.sub === 'bicando' && Math.random() < dt * 4) explodirBloco(Math.round(c.x), Math.floor(c.y), Math.round(c.z), 0, 0x6b4a2a);
+                                if (c.t <= 0) {
+                                    if (c.sub === 'bicando') { c.sub = 'parado'; c.t = 0.5 + Math.random() * 1.0; }
+                                    else if (Math.random() < 0.5) { c.sub = 'bicando'; c.t = 1.0 + Math.random() * 1.3; c.bic = Math.random() * 6; }
+                                    else {
+                                        const ang = Math.random() * 6.283, d = 0.9 + Math.random() * 0.9;
+                                        const nx = c.x + Math.sin(ang) * d, nz = c.z + Math.cos(ang) * d;
+                                        let ok = false;
+                                        if (Math.hypot(nx - c.base.x, nz - c.base.z) < 5 && chunks.has(ckKey(Math.round(nx) >> 4, Math.round(nz) >> 4))) {
+                                            const gy = soloMob(Math.round(nx), Math.round(nz));
+                                            if (gy >= 0 && Math.abs(gy - c.y) <= 1) {
+                                                c.pulo = { x0: c.x, z0: c.z, y0: c.y, x1: nx, z1: nz, y1: gy, s: 0 };
+                                                c.sub = 'pulando'; c.rot = Math.atan2(nx - c.x, nz - c.z); ok = true;
+                                            }
+                                        }
+                                        if (!ok) { c.sub = 'parado'; c.t = 0.5 + Math.random() * 1.0; }
+                                    }
+                                }
+                            }
+                        }
+                    } else if (c.estado === 'voando') {
+                        const v = c.voo;
+                        v.s = Math.min(1, v.s + dt / v.dur);
+                        const e = v.s * v.s * (3 - 2 * v.s) * 0.35 + v.s * 0.65;      // arranca e pousa suave
+                        c.x = v.x0 + (v.x1 - v.x0) * e; c.z = v.z0 + (v.z1 - v.z0) * e;
+                        c.y = v.y0 + (v.y1 - v.y0) * e + Math.sin(Math.PI * v.s) * v.arco;
+                        bater = true;
+                        inclina = v.s > 0.82 ? -0.5 : 0.18;
+                        if (v.s >= 1) {
+                            c.x = v.x1; c.y = v.y1; c.z = v.z1; c.voo = null; c.estado = c.prox;
+                            if (c.estado === 'chao') { c.base = { x: c.x, z: c.z }; c.tempoChao = 9 + Math.random() * 10; c.sub = 'parado'; c.t = 0.8; }
+                            else { c.t = 10 + Math.random() * 18; c.gritoT = 3 + Math.random() * 6; }
+                            if (DIA_V > 0.5) partir(c);
+                        }
+                    } else if (c.estado === 'partindo') {
+                        c.partT -= dt;
+                        c.x += Math.sin(c.partDir) * 6 * dt; c.z += Math.cos(c.partDir) * 6 * dt; c.y += 3.5 * dt;
+                        bater = true; inclina = 0.1;
+                        if (c.partT <= 0) { removerCoruja(i); continue; }
+                    }
+
+                    // ---------- animação ----------
+                    const k = 1 - Math.exp(-14 * dt);
+                    for (const a of c.asas) {
+                        const alvo = bater ? 0.75 + Math.sin(t * 15 + c.olhar) * 0.85 : 0.05;
+                        a.pv.rotation.z += (a.sx * alvo - a.pv.rotation.z) * (bater ? 1 : k);
+                    }
+                    c.mesh.rotation.x += (inclina - c.mesh.rotation.x) * k;
+                    let cabX = 0, cabY = 0;
+                    if (c.estado === 'chao' && c.sub === 'bicando') cabX = 0.55 + Math.sin(t * 16 + c.bic) * 0.5;      // bicadas
+                    else if (c.piando > 0) cabX = -0.35 * Math.sin(Math.min(1, c.piando * 2) * Math.PI);                // cabeça pra trás ao piar
+                    if (c.estado === 'poleiro' || (c.estado === 'chao' && c.sub !== 'bicando')) {
+                        const dj = Math.hypot(c.x - posX, c.z - posZ);
+                        if (dj < 26) {                                           // olha para o jogador
+                            let da = Math.atan2(posX - c.x, posZ - c.z) - c.rot;
+                            da = Math.atan2(Math.sin(da), Math.cos(da));
+                            cabY = Math.max(-1.3, Math.min(1.3, da));
+                        } else cabY = Math.sin(t * 0.6 + c.fase) * 0.8;       // olha em volta devagar
+                    }
+                    c.cabeca.rotation.x += (cabX - c.cabeca.rotation.x) * (1 - Math.exp(-18 * dt));
+                    c.cabeca.rotation.y += (cabY - c.cabeca.rotation.y) * (1 - Math.exp(-5 * dt));
+                    c.mesh.rotation.y = c.rot;
+                    c.mesh.position.set(c.x, c.y, c.z);
+                    atualizarBlob(c, c.x, c.y, c.z);
+                }
+            }
+
+            function tentarSpawnGrilo() {
+                if (grilos.length >= GRILO_MAX) return false;
+                const ang = Math.random() * 6.283, d = 6 + Math.random() * 16;
+                const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
+                if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;
+                const y = soloMob(x, z);
+                if (y < 0) return false;
+                criarGrilo(x, y, z);
+                return true;
+            }
+            function atualizarGrilos(dt, t) {
+                tSpawnGrilo -= dt;
+                if (tSpawnGrilo <= 0) {
+                    tSpawnGrilo = 5 + Math.random() * 6;
+                    if (DIA_V < 0.25)                                       // só nascem à noite
+                        for (let i = 0; i < 4 && grilos.length < GRILO_MAX && !tentarSpawnGrilo(); i++);
+                }
+                for (let i = grilos.length - 1; i >= 0; i--) {
+                    const m = grilos[i];
+                    const dj = Math.hypot(m.x - posX, m.z - posZ);
+                    if (m.y < -8 || dj > 64) { removerGrilo(i); continue; }
+                    if (!chunks.has(ckKey(Math.floor(m.x + 0.5) >> 4, Math.floor(m.z + 0.5) >> 4))) continue;
+                    m.t -= dt;
+                    if (!m.enterra && DIA_V > 0.5) { m.enterra = true; m.afund = 0; m.trino = 0; }   // amanheceu: vai se enterrar
+
+                    if (m.enterra) {                                       // enterrando: sem pulos e sem cri-cri
+                        m.trino = 0;
+                    } else if (m.estado === 0) {                           // parado: canta de vez em quando
+                        m.cantaT -= dt;
+                        if (m.cantaT <= 0) {
+                            m.cantaT = 1.3 + Math.random() * 2.4;
+                            m.trino = 0.55;
+                            const alcance = 26;
+                            if (dj < alcance) sfxGrilo(0.07 * Math.pow(1 - dj / alcance, 2) * (1.0 + (1 - DIA_V) * 0.8));
+                        }
+                        if (m.t <= 0 || dj < 2.2) {                         // pula (foge se o jogador chega perto)
+                            m.estado = 1;
+                            m.saltos = 1 + Math.floor(Math.random() * 3);
+                            m.rot = dj < 3 ? Math.atan2(m.x - posX, m.z - posZ) + (Math.random() - 0.5) * 0.8 : Math.random() * 6.283;
+                            m.t = 0;
+                        }
+                    } else if (m.noChao && m.t <= 0) {
+                        if (m.saltos <= 0) { m.estado = 0; m.t = 1.5 + Math.random() * 3.5; }
+                        else {
+                            m.saltos--;
+                            m.vy = 5.2 + Math.random() * 1.4;
+                            m.vh = 1.7 + Math.random() * 0.9;
+                            m.noChao = false;
+                            m.t = 0.1;
+                            m.rot += (Math.random() - 0.5) * 0.6;
+                        }
+                    }
+
+                    // movimento: horizontal só no ar; bloqueado por paredes
+                    if (!m.noChao) {
+                        const nx = m.x + Math.sin(m.rot) * m.vh * dt, nz = m.z + Math.cos(m.rot) * m.vh * dt;
+                        if (!solidoG(Math.floor(nx + 0.5), Math.floor(m.y + 0.1), Math.floor(nz + 0.5))) { m.x = nx; m.z = nz; }
+                        else { m.vh = 0; m.rot += Math.PI * (0.6 + Math.random() * 0.8); }
+                    }
+                    m.vy -= 24 * dt;
+                    const ny = m.y + m.vy * dt, bx = Math.floor(m.x + 0.5), bz = Math.floor(m.z + 0.5);
+                    if (m.vy <= 0 && solidoG(bx, Math.floor(ny), bz)) { m.y = Math.floor(ny) + 1; m.vy = 0; m.vh = 0; m.noChao = true; }
+                    else if (m.vy > 0 && solidoG(bx, Math.floor(ny + 0.2), bz)) { m.vy = 0; m.y = ny; }
+                    else { m.y = ny; if (m.vy < 0 || m.y > 0) m.noChao = m.noChao && m.vy === 0 && solidoG(bx, Math.floor(m.y - 0.05), bz); }
+
+                    // animação
+                    const ar = !m.noChao;
+                    m.trino = Math.max(0, m.trino - dt);
+                    const cant = m.trino > 0 && m.estado === 0;
+                    m.asas.rotation.z = cant ? Math.sin(t * 110 + m.fase) * 0.18 : 0;
+                    m.corpo.position.x = cant ? Math.sin(t * 95 + m.fase) * 0.006 : 0;
+                    m.antenas.forEach((a, k) => { a.rotation.x = -0.3 + Math.sin(t * 3.2 + m.fase + k) * 0.12; a.rotation.y = (k ? 1 : -1) * 0.25 + Math.sin(t * 2.1 + k * 2 + m.fase) * 0.15; });
+                    for (const p of m.pernas) {
+                        const alvo = ar ? (p.tipo === 't' ? 1.25 : p.tipo === 'm' ? 0.5 : -0.5) : (p.tipo === 't' ? 0.35 : 0);
+                        p.pv.rotation.x += (alvo - p.pv.rotation.x) * (1 - Math.exp(-20 * dt));
+                    }
+                    if (m.enterra && m.noChao) {                           // afunda na terra com poeirinha
+                        m.afund += dt / 1.3;
+                        if (Math.random() < dt * 6) explodirBloco(Math.round(m.x), Math.floor(m.y), Math.round(m.z), 0, 0x6b4a2a);
+                        if (m.afund >= 1) { removerGrilo(i); continue; }
+                    }
+                    const af = m.afund || 0;
+                    m.g.position.set(m.x, m.y - af * 0.34, m.z);
+                    m.g.rotation.set(ar ? clamp(-m.vy * 0.06, -0.5, 0.5) : 0, m.rot + (af > 0 ? Math.sin(t * 40) * 0.12 : 0), 0);
+                    const gch = chaoSob(m.x, m.y, m.z);
+                    m.blob.position.set(m.x, gch + 0.03, m.z);
+                    const sb = Math.max(0.12, 0.26 - (m.y - gch) * 0.1) * (1 - af);
+                    m.blob.scale.set(sb, sb, 1);
+                }
+            }
+
+            // ============================================================
+            // COMBATE: espada contra ovelhas e porcos
+            // ============================================================
+            const ALCANCE_ATAQUE = 4.2;
+            const alcanceAtaque = () => (barra[slotSel] === ITEM_LANCA ? 6.2 : ALCANCE_ATAQUE);   // a lança alcança mais longe
+            let ataqueEspera = 0, avisoCarne = false, avisoPedra = false;
+
+            // mob sob a mira (raio da câmera × caixa do mob), sem atravessar paredes
+            function mobNaMira(nx, ny) {
+                _o.copy(camera.position);
+                _d.set(nx, ny, 0.5).unproject(camera).sub(_o).normalize();
+                let melhor = null, melhorT = Infinity;
+                for (const m of mobs) {
+                    if (m.morto) continue;
+                    const dJog = Math.hypot(m.x - posX, m.y + 0.5 - (posY + 1.0), m.z - posZ);
+                    if (dJog > alcanceAtaque()) continue;
+                    const alt = m.tipo === 'porco' ? 0.95 : 1.05;
+                    const t = raioCaixa(_o.x, _o.y, _o.z, _d.x, _d.y, _d.z,
+                        m.x - 0.5, m.y + 0.05, m.z - 0.5,
+                        m.x + 0.5, m.y + alt, m.z + 0.5);
+                    if (t >= 0 && t < melhorT) { melhorT = t; melhor = m; }
+                }
+                if (!melhor) return null;
+                // linha de visão: não dá para bater através de blocos
+                const ax = posX, ay = posY + 1.55, az = posZ;
+                const dx = melhor.x - ax, dy = (melhor.y + 0.55) - ay, dz = melhor.z - az;
+                const dd = Math.hypot(dx, dy, dz);
+                const passos = Math.max(1, Math.ceil(dd / 0.25));
+                for (let i = 1; i < passos; i++) {
+                    const t = i / passos;
+                    if (getBloco(Math.floor(ax + dx * t + 0.5), Math.floor(ay + dy * t), Math.floor(az + dz * t + 0.5))) return null;
+                }
+                return melhor;
+            }
+
+            function sfxMobDano() {
+                rajada(0.09, 'lowpass', 900, 1, 0.35);
+                tom(260 + Math.random() * 80, 150, 0.12, 0.18, 'square');
+            }
+            function sfxMobMorte(tipo) {
+                const f = tipo === 'porco' ? 220 : 420;
+                tom(f, f * 0.45, 0.3, 0.22, 'square');
+                rajada(0.22, 'lowpass', 500, 0.8, 0.3);
+            }
+
+            // ---------- Dano no jogador (zumbis) ----------
+            const danoFlashEl = document.getElementById('dano-flash');
+            let danoFlashT = 0;
+            function machucarJogador(dano, dirX, dirZ) {
+                if (modoJogo !== 'sobrevivencia') return;
+                if (dormindo) acordar(false);
+                vida = Math.max(0, vida - dano);
+                if (danoFlashEl) {
+                    danoFlashEl.style.opacity = '0.95';
+                    clearTimeout(danoFlashT);
+                    danoFlashT = setTimeout(() => { danoFlashEl.style.opacity = '0'; }, 190);
+                }
+                tom(190, 80, 0.24, 0.22, 'sawtooth');
+                if (dirX !== undefined) { velX += dirX * 5.5; velZ += dirZ * 5.5; }
+                if (vida <= 0) {
+                    posX = 0; posZ = 0; posY = alturaAt(0, 0);
+                    while (colide(posX, posY, posZ) && posY < 60) posY += 1;
+                    velX = velY = velZ = 0;
+                    vida = VIDA_MAX; fome = FOME_MAX;
+                    msgSistema('Você morreu! Resurgiu no começo do mundo.');
+                }
+            }
+
+            function machucarMob(m, dano, dirX, dirZ) {
+                if (m.morto) return;
+                m.hp -= dano;
+                m.hurt = 0.22;
+                for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
+                m.mesh.scale.set(1.08, 0.9, 1.08);
+                m.estado = 1; m.t = 0.9 + Math.random() * 0.5;
+                m.alvoRot = Math.atan2(m.x - posX, m.z - posZ);       // corre para longe
+                m.vy = Math.max(m.vy, 5.5); m.noChao = false;
+                const emp = 0.35;
+                if (!colideMob(m.x + dirX * emp, m.y, m.z)) m.x += dirX * emp;
+                if (!colideMob(m.x, m.y, m.z + dirZ * emp)) m.z += dirZ * emp;
+                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
+                sfxMobDano();
+                if (m.hp <= 0) matarMob(m);
+            }
+
+            function matarMob(m) {
+                const i = mobs.indexOf(m);
+                if (i < 0) return;
+                m.morto = true;
+                if (modoJogo === 'sobrevivencia') {
+                    if (m.hostil) {
+                        // zumbi não solta carne
+                    } else {
+                        const qtd = 1 + (Math.random() < 0.5 ? 1 : 0);     // 1 ou 2 carnes
+                        for (let k = 0; k < qtd; k++) soltarItem(m.x, m.y, m.z, ITEM_CARNE, 0.5);
+                        if (m.tipo === 'ovelha') soltarItem(m.x, m.y, m.z, ITEM_LA, 0.5);      // ovelha também solta 1 lã
+                    }
+                } else if (!avisoCarne && !m.hostil) {
+                    avisoCarne = true;
+                    msgSistema('Os animais só soltam carne para pegar no modo sobrevivência (/sobrevivencia).');
+                }
+                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, m.hostil ? 0x4e7f3a : 0x8f2f24);
+                sfxMobMorte(m.tipo);
+                removerMob(i);
+            }
+
+            // Retorna true quando está mirando num mob (para não quebrar o bloco atrás dele).
+            function atualizarAtaque(dt, ativo, nx, ny) {
+                if (ataqueEspera > 0) ataqueEspera -= dt;
+                if (!ativo) return false;
+                const m = mobNaMira(nx, ny);
+                if (!m) return false;
+                if (ataqueEspera <= 0) {
+                    const item = barra[slotSel];
+                    const comLanca = item === ITEM_LANCA, comEspada = item === ITEM_ESPADA;
+                    const dx = m.x - posX, dz = m.z - posZ;
+                    const dl = Math.hypot(dx, dz) || 1;
+                    machucarMob(m, comLanca ? 3 : (comEspada ? 2 : 1), dx / dl, dz / dl);
+                    ataqueEspera = comLanca ? 0.68 : (comEspada ? 0.42 : 0.55);
+                    meuChar.golpe = 0.25;
+                    virarPara(m.x, m.z);
+                    resetarQuebra();
+                }
+                return true;
+            }
 
             // ============================================================
             // ITENS NO CHÃO: flutuam, giram e voam até o jogador (sobrevivência)
@@ -3910,6 +5839,8 @@
                 const g = new THREE.Group();
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, MAT[TIPOS[item]]); m.scale.setScalar(0.32); }
+                else if (item === ITEM_CAMA) { m = modeloCama(false); m.scale.setScalar(0.22); }
+                else if (item === ITEM_PORTA) { m = new THREE.Mesh(PORTA_ITEM_GEO, MAT.porta); m.scale.setScalar(0.45); }
                 else { m = new THREE.Mesh(GEO_CRUZ, matItem[item]); m.scale.setScalar(0.5); m.position.y = -0.25; }
                 g.add(m);
                 scene.add(g);
@@ -3990,7 +5921,8 @@
             function matsParaMao(item) {                 // materiais da mão: sempre desenhados por cima
                 let r = matsMaoCache.get(item);
                 if (r) return r;
-                const base = item < NTIPOS ? MAT[TIPOS[item]] : matItem[item];
+                if (item === ITEM_CAMA) return true;           // a cama cria os próprios materiais (sempre por cima)
+                const base = item < NTIPOS ? MAT[TIPOS[item]] : item === ITEM_PORTA ? MAT.porta : matItem[item];
                 r = Array.isArray(base) ? base.map(clonarSemProfundidade) : clonarSemProfundidade(base);
                 matsMaoCache.set(item, r);
                 return r;
@@ -3998,6 +5930,8 @@
             function criarMeshItem(item, esc, mats) {
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, mats || MAT[TIPOS[item]]); m.scale.setScalar(esc); }
+                else if (item === ITEM_CAMA) { m = modeloCama(!!mats); m.scale.setScalar(esc * 0.7); }
+                else if (item === ITEM_PORTA) { m = new THREE.Mesh(PORTA_ITEM_GEO, mats || MAT.porta); m.scale.setScalar(esc * 1.5); }
                 else {
                     m = new THREE.Mesh(GEO_CRUZ, mats || matItem[item]);
                     m.scale.setScalar(esc * 1.55);
@@ -4009,10 +5943,16 @@
                 if (item === itemMaoAtual) return;
                 itemMaoAtual = item;
                 while (maoItemGrp.children.length) maoItemGrp.remove(maoItemGrp.children[0]);
-                const ehE = item === ITEM_ENXADA;
-                if (maoBraco) maoBraco.visible = !ehE;
+                const ehE = item === ITEM_ENXADA, ehS = item === ITEM_ESPADA, ehP = item === ITEM_PICARETA;
+                const ehPa = item === ITEM_PA, ehL = item === ITEM_LANCA, ehT = item === ITEM_TOCHA;
+                if (maoBraco) maoBraco.visible = true;          // o braço nunca é escondido
                 if (maoEnxada) maoEnxada.visible = ehE;
-                if (ehE) return;
+                if (maoEspada) maoEspada.visible = ehS;
+                if (maoPicareta) maoPicareta.visible = ehP;
+                if (maoPa) maoPa.visible = ehPa;
+                if (maoLanca) maoLanca.visible = ehL;
+                if (maoTocha) maoTocha.visible = ehT;
+                if (ehE || ehS || ehP || ehPa || ehL || ehT) return;
                 if (!(item >= 0 && item < NITENS)) return;
                 const m = criarMeshItem(item, 0.3, matsParaMao(item));
                 m.renderOrder = 1000;
@@ -4022,8 +5962,15 @@
                 if (p.itemAtual === item) return;
                 p.itemAtual = item;
                 if (p.itemMesh) { p.armR.remove(p.itemMesh); p.itemMesh = null; }
-                if (p.armR.children[0]) p.armR.children[0].visible = item !== ITEM_ENXADA;     // enxada substitui o braço
-                if (item === ITEM_ENXADA) { const g = modeloEnxada(false); p.armR.add(g); p.itemMesh = g; return; }
+                const ehE = item === ITEM_ENXADA, ehS = item === ITEM_ESPADA, ehP = item === ITEM_PICARETA;
+                const ehPa = item === ITEM_PA, ehL = item === ITEM_LANCA, ehT = item === ITEM_TOCHA;
+                if (p.armR.children[0]) p.armR.children[0].visible = true;     // ferramenta fica na mão, sem esconder o braço
+                if (ehE) { const g = modeloEnxada(false); segurarFerramenta(g, 'enxada', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (ehS) { const g = modeloEspada(false); segurarFerramenta(g, 'espada', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (ehP) { const g = modeloPicareta(false); segurarFerramenta(g, 'picareta', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (ehPa) { const g = modeloPa(false); segurarFerramenta(g, 'pa', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (ehL) { const g = modeloLanca(false); segurarFerramenta(g, 'lanca', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (ehT) { const g = modeloTochaMao(false); segurarFerramenta(g, 'tocha', false); p.armR.add(g); p.itemMesh = g; return; }
                 if (!(item >= 0 && item < NITENS)) return;
                 const g = new THREE.Group();
                 g.position.set(0, -0.92, 0.2);
@@ -4064,7 +6011,7 @@
                 if (dy < 0) max = Math.min(max, Math.max(0.6, (oy - 0.3) / -dy));
                 for (let d = 0.5; d <= max; d += 0.3) {
                     const id = getBloco(Math.floor(ox + dx * d + 0.5), Math.floor(oy + dy * d), Math.floor(oz + dz * d + 0.5));
-                    if (id && !ehFolha[id]) return Math.max(0.6, d - 0.45);
+                    if (id && !ehFolha[id] && !ehTochaId(id) && (!ehPortaId(id) || portaPonto(id, ox + dx * d, oz + dz * d, 0.25))) return Math.max(0.6, d - 0.45);
                 }
                 return max;
             }
@@ -4075,6 +6022,14 @@
                 ultTs = ts;
                 const agora = performance.now();
                 tempoJogo += dt;
+
+                // dormindo: o tempo passa rápido até amanhecer
+                if (dormindo) {
+                    sonoT += dt;
+                    tempoBase = (tempoDoDia() + dt * 45 / CICLO_S) % 1;
+                    tempoBaseMs = Date.now();
+                    if (sonoT > 2 && tempoDoDia() < 0.3) acordar(true);
+                }
 
                 // vento
                 const forca = forcaVento(tempoJogo);
@@ -4090,6 +6045,7 @@
                 let inZ = (kb.down - kb.up) + joy.y;
                 let len = Math.hypot(inX, inZ);
                 if (len > 1) { inX /= len; inZ /= len; len = 1; }
+                if (dormindo) { inX = 0; inZ = 0; len = 0; }
                 const movendo = len > 0.05;
                 const yawMov = camRotX + Math.atan2(inX, inZ);
                 const tvx = movendo ? Math.sin(yawMov) * VEL_MAX * len : 0;
@@ -4100,20 +6056,20 @@
                 velZ += (tvz - velZ) * kAcel;
                 if (!movendo && Math.abs(velX) + Math.abs(velZ) < 0.05) velX = velZ = 0;
 
-                if (kb.jump || jumpBtn) jumpBuf = 0.12; else jumpBuf -= dt;
+                if (!dormindo && (kb.jump || jumpBtn)) jumpBuf = 0.12; else jumpBuf -= dt;
                 if (noChao) coyote = 0.1; else coyote -= dt;
                 if (jumpBuf > 0 && coyote > 0) { velY = VEL_PULO; noChao = false; coyote = 0; jumpBuf = 0; gastarPulo(); }
 
                 const ox0 = posX, oz0 = posZ;
                 const velMax = Math.max(Math.abs(velX), Math.abs(velZ), Math.abs(velY));
-                const passos = Math.max(1, Math.ceil(velMax * dt / 0.25));
+                const passos = dormindo ? 0 : Math.max(1, Math.ceil(velMax * dt / 0.25));
                 const sdt = dt / passos;
                 for (let s = 0; s < passos; s++) {
                     const dx = velX * sdt, dz = velZ * sdt;
                     if (dx !== 0) { if (!colide(posX + dx, posY, posZ)) posX += dx; else if (!tentarDegrau(dx, 0, movendo)) velX = 0; }
                     if (dz !== 0) { if (!colide(posX, posY, posZ + dz)) posZ += dz; else if (!tentarDegrau(0, dz, movendo)) velZ = 0; }
-                    posX = clamp(posX, -LIMITE_MUNDO, LIMITE_MUNDO);
-                    posZ = clamp(posZ, -LIMITE_MUNDO, LIMITE_MUNDO);
+                    posX = clamp(posX, -1048576, 1048576);
+                    posZ = clamp(posZ, -1048576, 1048576);
 
                     velY = Math.max(-40, velY - GRAVIDADE * sdt);
                     const proxY = posY + velY * sdt;
@@ -4140,9 +6096,18 @@
                     if (emoteTimer <= 0) { emoteAtivo = ''; balloonEl.style.display = 'none'; }
                 }
                 aplicarAnimacao(meuChar, velAnim, !noChao, dt, emoteAtivo);
+                if (dormindo && camaAtual) {                  // deitado na cama, de barriga para cima, cabeça no travesseiro
+                    const d = DIRS4[camaAtual.o];
+                    meuChar.mesh.position.set(camaAtual.fx + d[0] * 0.5 - d[0] * 0.9, camaAtual.fy + 0.74, camaAtual.fz + d[1] * 0.5 - d[1] * 0.9);
+                    meuChar.mesh.rotation.x = -Math.PI / 2;
+                    meuChar.mesh.rotation.y = Math.atan2(-d[0], -d[1]);
+                    meuChar.blob.visible = false;
+                }
                 definirItemNoBraco(meuChar, barra[slotSel]);
                 atualizarBlob(meuChar, posX, posY, posZ);
                 atualizarMobs(dt);
+                atualizarGrilos(dt, tempoJogo);
+                atualizarCorujas(dt, tempoJogo);
                 atualizarDrops(dt, tempoJogo);
 
                 if (balloonEl.style.display !== 'none') {
@@ -4151,9 +6116,6 @@
                         `translate3d(${(_v.x * 0.5 + 0.5) * window.innerWidth}px, ${(_v.y * -0.5 + 0.5) * window.innerHeight}px, 0) translate(-50%, -240%)`;
                 }
 
-                // lanterna com leve tremor
-                lanterna.position.set(posX, posY + 1.6, posZ);
-                lanterna.intensity = (1.25 + Math.sin(tempoJogo * 11) * 0.05 + Math.sin(tempoJogo * 23.7) * 0.04) * (1 - 0.9 * DIA_V);
 
                 // ---------- Câmera ----------
                 camPivotY += (posY - camPivotY) * (1 - Math.exp(-14 * dt));
@@ -4161,7 +6123,7 @@
                     // olhos na altura da cabeça do personagem (olhos do Minecraft: 1,62)
                     let olhoY = posY + 1.62;
                     const ebx = Math.floor(posX + 0.5), ebz = Math.floor(posZ + 0.5), eby = Math.floor(olhoY + 0.1);
-                    if (getBloco(ebx, eby, ebz)) olhoY = eby - 0.12;       // teto baixo: não entra no bloco
+                    { const eb = getBloco(ebx, eby, ebz); if (ehSolidoBloco(eb) && (!ehPortaId(eb) || portaPonto(eb, posX, posZ, 0.2))) olhoY = eby - 0.12; }       // teto baixo: não entra no bloco
                     camera.position.set(posX, olhoY, posZ);
                     camera.rotation.set(-camRotY, camRotX, 0);
                 } else {
@@ -4179,6 +6141,12 @@
                 camera.updateMatrixWorld();
                 ceu.position.copy(camera.position);
                 atualizarCicloDia();
+                climaTimer -= dt;
+                if (climaTimer <= 0) {                       // o clima muda sozinho de vez em quando
+                    climaTimer = 180 + Math.random() * 300;
+                    definirClima(Math.random() < 0.4 ? 'chuva' : 'limpo');
+                }
+                atualizarChuva(dt);
 
                 // ---------- Balão de chat do jogador local ----------
                 if (meuBalaoAte) {
@@ -4211,6 +6179,7 @@
                     qOn = true; aimPadrao(_w); qnx = _w[0]; qny = _w[1];
                 }
                 {
+                    if (dormindo) qOn = false;
                     const itSel = barra[slotSel];
                     const podeComer = modoJogo === 'sobrevivencia' && itSel >= 0 && barraQtd[slotSel] > 0 && COMIDA[itSel] > 0 && fome < FOME_MAX - 0.01;
                     if (!qOn) comerBloq = false;
@@ -4220,7 +6189,8 @@
                         atualizarQuebra(dt, false, qnx, qny, movendo);
                     } else {
                         comerT = 0; meuChar.comendo = false;
-                        atualizarQuebra(dt, qOn && !comerBloq, qnx, qny, movendo);
+                        const atacando = atualizarAtaque(dt, qOn && !comerBloq, qnx, qny);
+                        if (!atacando) atualizarQuebra(dt, qOn && !comerBloq, qnx, qny, movendo);
                     }
                 }
 
@@ -4237,7 +6207,12 @@
                         seletorMesh.position.set(av.x, av.y + hh / 2, av.z);
                     } else {
                         seletorMesh.scale.set(1, 1, 1);
-                        seletorMesh.position.set(av.x, av.y + 0.5, av.z);
+                        if (ehPortaId(av.id)) {
+                            const pr = portaRect(av.id, av.x, av.z), pby = portaBaixo(av.id) ? av.y : av.y - 1;
+                            seletorMesh.scale.set((pr[1] - pr[0] + 0.02) / 1.02, 2.02 / 1.02, (pr[3] - pr[2] + 0.02) / 1.02);
+                            seletorMesh.position.set((pr[0] + pr[1]) / 2, pby + 1, (pr[2] + pr[3]) / 2);
+                        }
+                        if (!ehPortaId(av.id)) seletorMesh.position.set(av.x, av.y + 0.5, av.z);
                     }
                 } else seletorMesh.visible = false;
                 const mostrarGhost = !qOn && av && !(barra[slotSel] >= ITEM_SEMENTE) && (!IS_TOUCH || (toque.id !== null && toque.modo === 'espera'));
@@ -4251,6 +6226,8 @@
 
                 // ---------- Efeitos ----------
                 atualizarParticulas(dt);
+                atualizarTochas(dt, posX, posZ);
+                atualizarPortas(dt);
                 atualizarAmbiente(dt, tempoJogo, forca);
 
                 // ---------- Remotos ----------
@@ -4296,8 +6273,12 @@
                 }
 
                 // envia só o trecho usado dos buffers de instância
-                for (let i = 1; i < conj.length; i++) if (conj[i]) conj[i].flush();
-                for (let i = 0; i < pconj.length; i++) pconj[i].flush();
+                camera.updateMatrixWorld();
+                _mpv.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+                _frus.setFromProjectionMatrix(_mpv);
+                for (let i = 1; i < conj.length; i++) if (conj[i]) conj[i].flush(_frus);
+                for (let i = 0; i < pconj.length; i++) pconj[i].flush(_frus);
+                tconj.flush();                                  // sem isso as tochas nunca ficavam visíveis
 
                 renderer.render(scene, camera);
 
@@ -4329,6 +6310,7 @@
             miraEl.style.display = (IS_TOUCH) ? 'block' : 'none';
             miraVis = IS_TOUCH;
             requestAnimationFrame(animate);
+
         }
 
         // ============================================================
