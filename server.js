@@ -108,6 +108,7 @@ function aplicarJogador(d, agora) {
         y: Number(d.y) || 0,
         z: Number(d.z) || 0,
         rot: Number(d.rot) || 0,
+        item: (Number.isInteger(+d.item) && +d.item >= 0 && +d.item <= MAX_ITEM) ? +d.item : -1,   // item na mão
         emote: String(d.emote ?? '').replace(/[^a-z0-9_-]/gi, '').slice(0, 16),
         keys: d.keys && typeof d.keys === 'object' ? d.keys : {},
         ultimo_acesso: agora
