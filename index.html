@@ -1766,6 +1766,8 @@
             atualizarFila(0, 0);
 
             let posX = 0, posY = alturaAt(0, 0), posZ = 0, rotY = 0, alvoRot = 0;
+            const ALTURA_JOG = 2.56;   // altura de colisão = altura do modelo (cabeça incluída)
+            while (colide(posX, posY, posZ) && posY < 60) posY += 1;   // nascimento: não começa preso
             let velX = 0, velZ = 0, velY = 0, noChao = true;
             let velAnim = 0, jumpBuf = 0, coyote = 0;
             let camRotX = 0, camRotY = 0.25;
@@ -1911,7 +1913,7 @@
             function colide(x, y, z) {
                 const minX = Math.floor(x - 0.3 + 0.5), maxX = Math.floor(x + 0.3 + 0.5 - 1e-4);
                 const minZ = Math.floor(z - 0.3 + 0.5), maxZ = Math.floor(z + 0.3 + 0.5 - 1e-4);
-                const minY = Math.floor(y), maxY = Math.floor(y + 1.8 - 1e-4);
+                const minY = Math.floor(y), maxY = Math.floor(y + ALTURA_JOG - 1e-4);
                 for (let ix = minX; ix <= maxX; ix++) {
                     for (let iy = minY; iy <= maxY; iy++) {
                         for (let iz = minZ; iz <= maxZ; iz++) {
@@ -2069,7 +2071,7 @@
                 const px = a.px, py = a.py, pz = a.pz;
                 if (py < 0 || py >= YMAX - 2) return;
                 if (getId(px, py, pz) !== 0) return;
-                if (Math.abs(px - posX) < 0.8 && Math.abs(pz - posZ) < 0.8 && posY + 1.8 > py && posY < py + 1) return;
+                if (Math.abs(px - posX) < 0.8 && Math.abs(pz - posZ) < 0.8 && posY + ALTURA_JOG > py && posY < py + 1) return;
                 const id = selIndex + 1;
                 aplicarEdicao(px, py, pz, id);
                 pend.delete(numKey(px, py, pz));
