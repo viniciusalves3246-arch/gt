@@ -319,13 +319,8 @@
             z-index: 12;
             background: rgba(0, 0, 0, 0.6);
             border: 3px solid #000;
-            max-width: calc(9 * var(--slot) + 6px);
-            overflow-x: auto;
-            overflow-y: hidden;
-            touch-action: pan-x;
-            scrollbar-width: none;
+            touch-action: manipulation;
         }
-        #hotbar::-webkit-scrollbar { display: none; }
         .slot {
             flex: 0 0 auto;
             width: var(--slot); height: var(--slot);
@@ -338,6 +333,45 @@
         }
         .slot.sel { border-color: #fff; background: rgba(255, 255, 255, 0.4); }
         .slot img { width: calc(var(--slot) - 10px); height: calc(var(--slot) - 10px); image-rendering: pixelated; pointer-events: none; }
+        .slot.alvo:empty { border-color: #ffd36b; border-style: dashed; background: rgba(255, 211, 107, 0.15); }
+        .slot.mochila { font-size: calc(var(--slot) - 16px); margin-left: 4px; background: rgba(0, 0, 0, 0.35); }
+
+        #inventario {
+            display: none;
+            position: absolute;
+            left: 50%;
+            top: calc(60px + var(--sat));
+            transform: translateX(-50%);
+            width: min(94vw, 440px);
+            max-height: calc(100% - 290px);
+            z-index: 11;
+            flex-direction: column;
+            gap: 6px;
+            padding: 8px;
+            overflow-y: auto;
+            touch-action: pan-y;
+            background: rgba(10, 14, 12, 0.92);
+            border: 3px solid #000;
+            box-shadow: inset 0 0 0 2px #444;
+        }
+        #inventario.aberto { display: flex; }
+        #inv-topo { display: flex; justify-content: space-between; align-items: center; color: #fff; font-size: 10px; }
+        #invFechar { width: 28px; height: 28px; font-size: 10px; }
+        #inv-dica { color: #cfd8d3; font-size: 7px; line-height: 1.7; }
+        #inv-grade { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: 4px; }
+        .invcell {
+            aspect-ratio: 1;
+            border: 2px solid #555;
+            background: rgba(100, 100, 100, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .invcell img { width: 80%; height: 80%; image-rendering: pixelated; pointer-events: none; }
+        .invcell.sel { border-color: #7dff9b; background: rgba(125, 255, 155, 0.3); }
+        body.inv-open #chat-box { display: none; }
+
         #nome-bloco {
             position: absolute;
             bottom: calc(62px + var(--sab));
@@ -356,6 +390,7 @@
             #hud { font-size: 8px; }
             .sq, .emote-btn { width: 38px; height: 38px; }
         }
+        @media (max-width: 380px) { :root { --slot: 28px; } }
         @media (orientation: portrait) {
             body.touch #hotbar { bottom: calc(178px + var(--sab)); }
             body.touch #nome-bloco { bottom: calc(226px + var(--sab)); }
@@ -367,6 +402,7 @@
             body.touch #hotbar { bottom: calc(8px + var(--sab)); }
             body.touch #nome-bloco { bottom: calc(50px + var(--sab)); }
             #dica { bottom: calc(70px + var(--sab)); }
+            #inventario { top: calc(8px + var(--sat)); max-height: calc(100% - 70px); width: min(70vw, 440px); }
             .sq, .emote-btn { width: 36px; height: 36px; }
         }
     </style>
@@ -431,6 +467,11 @@
 
     <div id="mira">+</div>
     <div id="nome-bloco"></div>
+    <div id="inventario">
+        <div id="inv-topo"><span>Inventário</span><button id="invFechar" class="btn-ui">✕</button></div>
+        <div id="inv-dica"></div>
+        <div id="inv-grade"></div>
+    </div>
     <div id="hotbar"></div>
 
     <div id="joystick-container" class="touch-only">
@@ -445,6 +486,7 @@
         const VEL_MAX = 6.8;
         const GRAVIDADE = 42;
         const VEL_PULO = 13;
+        const VEL_DEGRAU = 10;      // pulo automático: sobe ~1,2 bloco (o pulo normal sobe 2)
         const LIMITE_MUNDO = 180;
         const CH = 16;               // tamanho do chunk
         const YMAX = 64;             // altura máxima do mundo
@@ -1888,30 +1930,85 @@
                 atualizarBtnSom();
             });
 
-            // ---------- Hotbar (rolável, todos os blocos) ----------
-            let selIndex = 0;
+            // ---------- Barra de acesso (9 quadrados, começa vazia) + inventário ----------
+            const NSLOTS = 9;
+            const barra = new Array(NSLOTS).fill(-1);   // índice em TIPOS, ou -1 = vazio
+            let slotSel = 0;                            // quadrado da barra em uso
+            let invSel = -1;                            // bloco escolhido dentro do inventário
             const hotbarEl = document.getElementById('hotbar');
             const nomeBlocoEl = document.getElementById('nome-bloco');
-            function selecionar(i) {
-                selIndex = (i + NTIPOS) % NTIPOS;
-                const slots = hotbarEl.children;
-                for (let k = 0; k < slots.length; k++) slots[k].classList.toggle('sel', k === selIndex);
-                nomeBlocoEl.innerText = BLOCOS[TIPOS[selIndex]].nome;
-                const s = slots[selIndex];
-                if (s) {
-                    const alvo = s.offsetLeft - (hotbarEl.clientWidth - s.offsetWidth) / 2;
-                    hotbarEl.scrollLeft = alvo;
+            const invEl = document.getElementById('inventario');
+            const invGrade = document.getElementById('inv-grade');
+            const invDica = document.getElementById('inv-dica');
+            const slotsEl = [];
+            const invCelulas = [];
+
+            function invAberto() { return invEl.classList.contains('aberto'); }
+            function desenharBarra() {
+                for (let k = 0; k < NSLOTS; k++) {
+                    const t = barra[k], el = slotsEl[k];
+                    el.innerHTML = t >= 0 ? `<img src="${BLOCOS[TIPOS[t]].icone}">` : '';
+                    el.classList.toggle('sel', k === slotSel);
+                    el.classList.toggle('alvo', invSel >= 0);
                 }
+                const ts = barra[slotSel];
+                nomeBlocoEl.innerText = ts >= 0 ? BLOCOS[TIPOS[ts]].nome : '';
             }
-            TIPOS.forEach((t, i) => {
+            function atualizarInv() {
+                invCelulas.forEach((c, i) => c.classList.toggle('sel', i === invSel));
+                invDica.innerText = invSel >= 0
+                    ? BLOCOS[TIPOS[invSel]].nome + ' selecionado: toque num quadrado da barra'
+                    : 'Toque num bloco e depois num quadrado da barra';
+            }
+            function selecionar(i) { slotSel = (i + NSLOTS) % NSLOTS; desenharBarra(); }
+
+            function alternarInv(abrir) {
+                const ab = abrir === undefined ? !invAberto() : abrir;
+                invEl.classList.toggle('aberto', ab);
+                mochilaEl.classList.toggle('sel', ab);
+                document.body.classList.toggle('inv-open', ab);
+                if (ab) { if (document.pointerLockElement) document.exitPointerLock(); }
+                else invSel = -1;
+                atualizarInv();
+                desenharBarra();
+            }
+
+            for (let k = 0; k < NSLOTS; k++) {
                 const slot = document.createElement('div');
-                slot.className = 'slot' + (i === 0 ? ' sel' : '');
-                slot.innerHTML = `<img src="${BLOCOS[t].icone}">`;
-                slot.addEventListener('click', () => selecionar(i));
+                slot.className = 'slot';
+                slot.addEventListener('click', () => {
+                    if (invSel >= 0) {                                   // coloca o bloco escolhido neste quadrado
+                        barra[k] = invSel; slotSel = k; invSel = -1; atualizarInv();
+                    } else if (invAberto() && slotSel === k && barra[k] >= 0) {
+                        barra[k] = -1;                                   // inventário aberto: tocar de novo esvazia
+                    } else slotSel = k;
+                    desenharBarra();
+                });
+                slot.addEventListener('contextmenu', e => { e.preventDefault(); barra[k] = -1; desenharBarra(); });
                 hotbarEl.appendChild(slot);
+                slotsEl.push(slot);
+            }
+            const mochilaEl = document.createElement('div');             // ícone da mochila ao lado do último quadrado
+            mochilaEl.className = 'slot mochila';
+            mochilaEl.title = 'Inventário (I)';
+            mochilaEl.innerText = '🎒';
+            mochilaEl.addEventListener('click', () => alternarInv());
+            hotbarEl.appendChild(mochilaEl);
+
+            TIPOS.forEach((t, i) => {
+                const c = document.createElement('div');
+                c.className = 'invcell';
+                c.title = BLOCOS[t].nome;
+                c.innerHTML = `<img src="${BLOCOS[t].icone}">`;
+                c.addEventListener('click', () => { invSel = invSel === i ? -1 : i; atualizarInv(); desenharBarra(); });
+                invGrade.appendChild(c);
+                invCelulas.push(c);
             });
-            nomeBlocoEl.innerText = BLOCOS[TIPOS[0]].nome;
-            window.addEventListener('wheel', (e) => selecionar(selIndex + (e.deltaY > 0 ? 1 : -1)), { passive: true });
+            document.getElementById('invFechar').addEventListener('click', () => alternarInv(false));
+            ['wheel', 'touchmove'].forEach(ev => invEl.addEventListener(ev, e => e.stopPropagation(), { passive: true }));
+            atualizarInv();
+            desenharBarra();
+            window.addEventListener('wheel', (e) => selecionar(slotSel + (e.deltaY > 0 ? 1 : -1)), { passive: true });
 
             // ---------- Colisão ----------
             function colide(x, y, z) {
@@ -1926,6 +2023,15 @@
                     }
                 }
                 return false;
+            }
+
+            // ---------- Pulo automático (sobe degraus de 1 bloco ao andar contra eles) ----------
+            function tentarDegrau(ddx, ddz, andando) {
+                if (!andando || !noChao || velY > 0) return false;
+                if (colide(posX + ddx, posY + 1, posZ + ddz)) return false;   // obstáculo maior que 1 bloco
+                if (colide(posX, posY + 1, posZ)) return false;               // sem espaço em cima da cabeça
+                velY = VEL_DEGRAU; noChao = false;
+                return true;
             }
 
             // ============================================================
@@ -2076,7 +2182,9 @@
                 if (py < 0 || py >= YMAX - 2) return;
                 if (getId(px, py, pz) !== 0) return;
                 if (Math.abs(px - posX) < 0.8 && Math.abs(pz - posZ) < 0.8 && posY + ALTURA_JOG > py && posY < py + 1) return;
-                const id = selIndex + 1;
+                const ti = barra[slotSel];
+                if (ti < 0) return;                          // quadrado vazio: nada a colocar
+                const id = ti + 1;
                 aplicarEdicao(px, py, pz, id);
                 pend.delete(numKey(px, py, pz));
                 bufferEdicoes.push([px, py, pz, id]);
@@ -2324,11 +2432,13 @@
                 if (e.code === 'KeyF') kb.quebrar = 1;
                 if (e.repeat) return;
                 iniciarAudio();
+                if (e.code === 'Escape' && invAberto()) alternarInv(false);
+                if (e.code === 'KeyI') alternarInv();
                 if (e.code === 'KeyE') colocarCentro();
                 if (e.code === 'KeyV') alternarCamera();
                 if (e.code === 'KeyL') alternarTravaMouse();
-                if (e.code === 'BracketRight') selecionar(selIndex + 1);
-                if (e.code === 'BracketLeft') selecionar(selIndex - 1);
+                if (e.code === 'BracketRight') selecionar(slotSel + 1);
+                if (e.code === 'BracketLeft') selecionar(slotSel - 1);
                 if (MAPA_TECLAS_EMOTE[e.code]) dispararEmote(MAPA_TECLAS_EMOTE[e.code]);
                 if (e.key >= '1' && e.key <= '9') selecionar(parseInt(e.key) - 1);
             });
@@ -3036,8 +3146,8 @@
                 const sdt = dt / passos;
                 for (let s = 0; s < passos; s++) {
                     const dx = velX * sdt, dz = velZ * sdt;
-                    if (dx !== 0) { if (!colide(posX + dx, posY, posZ)) posX += dx; else velX = 0; }
-                    if (dz !== 0) { if (!colide(posX, posY, posZ + dz)) posZ += dz; else velZ = 0; }
+                    if (dx !== 0) { if (!colide(posX + dx, posY, posZ)) posX += dx; else if (!tentarDegrau(dx, 0, movendo)) velX = 0; }
+                    if (dz !== 0) { if (!colide(posX, posY, posZ + dz)) posZ += dz; else if (!tentarDegrau(0, dz, movendo)) velZ = 0; }
                     posX = clamp(posX, -LIMITE_MUNDO, LIMITE_MUNDO);
                     posZ = clamp(posZ, -LIMITE_MUNDO, LIMITE_MUNDO);
 
