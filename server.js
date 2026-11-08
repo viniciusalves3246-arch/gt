@@ -11,22 +11,28 @@ const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const ARQ_BLOCOS = path.join(DATA_DIR, 'mundo_blocos.json');
 
-const H = 48;
-const LIMITE_XZ = 200;
-const MAX_TIPO = 255;
+const H = 64;                  // altura máxima do mundo (igual ao YMAX do cliente; antes 48 recusava blocos altos)
+const LIMITE_XZ = 100000;    // mundo praticamente infinito (antes era 200)
+// Mapa de ids de bloco (igual ao cliente):
+//   1..27  blocos · 28..32 plantas · 33 terra arada · 34..37 plantação · 38..42 tochas
+//   43..58 porta (metade de baixo 43..50 = orientação*2 + aberta · metade de cima +8)
+//   59..66 cama (pé 59..62 = direção da cabeceira · cabeceira 63..66)
+//   75..90 porta espelhada (dobradiça do outro lado, mesma ordem da porta normal)
+const ID_MAXBLOCO = 90;
+const MAX_TIPO = ID_MAXBLOCO;  // ids acima disso são recusados
 const TIMEOUT = 10;            // segundos sem sinal => jogador removido
 const MAX_LOG = 300;
 const MAX_BODY = 1024 * 1024;  // 1 MB
 const TICK_MS = 66;            // ~15 envios por segundo pelo WebSocket
-const MAX_ITEM = 63;           // ids de item aceitos nos drops (blocos + plantas)
+const MAX_ITEM = 63;           // ids de item aceitos nos drops e na mão (blocos, plantas, ferramentas, cama 43 e porta 44)
 const DROP_TTL_MS = 5 * 60 * 1000;   // item no chão some depois de 5 min
 const MAX_DROPS = 500;
 const ALCANCE_PEGAR_XZ = 6;    // distância horizontal máxima (tolerante à latência) para coletar
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 // ---------- Plantações (trigo) ----------
-const ID_PLANTADO = 31;        // arado com semente; depois 32 (broto), 33 (crescendo) e 34 (trigo pronto)
-const ID_MADURO = 34;
+const ID_PLANTADO = 34;        // arado com semente; depois 35 (broto), 36 (crescendo) e 37 (trigo pronto)
+const ID_MADURO = 37;          // (antes 31..34: ficou desatualizado quando entraram os minérios e a terra arada virava plantação sozinha)
 const TEMPO_ESTAGIO_MS = Number(process.env.TEMPO_ESTAGIO_MS) || 40 * 1000;   // tempo de cada estágio (~2 min no total)
 const cultivos = new Map();    // "x,y,z" -> hora (ms) em que passa para o próximo estágio
 
