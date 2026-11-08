@@ -433,6 +433,16 @@
         .barra-v { display: flex; gap: 2px; }
         .barra-v img { width: 22px; height: 20px; image-rendering: pixelated; }
 
+        #sono-fx {
+            position: absolute; inset: 0; z-index: 30; background: #000;
+            opacity: 0; pointer-events: none; transition: opacity 1.4s ease;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 14px; color: #fff; text-align: center; padding: 20px;
+        }
+        #sono-fx.on { opacity: 1; pointer-events: auto; }
+        #sono-fx .t { font-size: clamp(14px, 4.5vw, 22px); text-shadow: 3px 3px #222; }
+        #sono-fx .s { font-size: 8px; color: #8aa097; line-height: 1.8; }
+
         @media (max-width: 700px) {
             .barra-v img { width: 18px; height: 16px; }
             :root { --slot: 32px; }
@@ -523,6 +533,7 @@
     <div id="mira">+</div>
     <div id="dano-flash"></div>
     <div id="chuva-fx"></div>
+    <div id="sono-fx"><div class="t">Dormindo...</div><div class="s">(toque na tela para sair da cama)</div></div>
     <div id="nome-bloco"></div>
     <div id="inventario">
         <div id="inv-topo">
@@ -596,7 +607,7 @@
         INFO.arado_s3 = ['Plantação', 0.5, 0x4b3020];
         INFO.tocha = ['Tocha', 0.1, 0xffb347];
         const NTIPOS = TIPOS.length;
-        const NPLANTAS = 5;   // tipos de planta; ids de edição de planta = NTIPOS + 1 + tipo
+        const NPLANTAS = 11;   // tipos de planta; ids de edição de planta = NTIPOS + 1 + tipo
         const ehFolha = new Uint8Array(NTIPOS + 2);
         const ehTransp = new Uint8Array(NTIPOS + 2);
         const ehSolo = new Uint8Array(NTIPOS + 2); // aceita capim/plantas por cima
@@ -606,9 +617,9 @@
         const ehApoio = new Uint8Array(NTIPOS + 2); // blocos que sustentam plantas (grama, terra...)
         [ID.grama, ID.terra, ID.podzol, ID.grama_morta, ID.lama].forEach(i => { ehApoio[i] = 1; });
         // tipos 5..7 = trigo em 3 estágios (broto, crescendo, maduro)
-        const PLANTA_NOME = ['Capim', 'Capim Seco', 'Samambaia', 'Cogumelo', 'Arbusto Morto', 'Trigo Novo', 'Trigo Crescendo', 'Trigo'];
-        const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630, 0x5a9a3a, 0x6aa040, 0xd4b040];
-        const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85, 0.35, 0.65, 0.95];   // altura da caixa de seleção
+        const PLANTA_NOME = ['Capim', 'Capim Seco', 'Samambaia', 'Cogumelo', 'Arbusto Morto', 'Trigo Novo', 'Trigo Crescendo', 'Trigo', 'Flor Vermelha', 'Flor Amarela', 'Flor Azul'];
+        const PLANTA_COR = [0x5a9a3a, 0xb8a860, 0x3f7a33, 0xb8302a, 0x5b4630, 0x5a9a3a, 0x6aa040, 0xd4b040, 0xd94a4a, 0xf0c24a, 0x4a8bd9];
+        const PLANTA_ALTURA = [0.9, 0.85, 0.9, 0.5, 0.85, 0.35, 0.65, 0.95, 1.1, 1.1, 1.1];   // altura da caixa de seleção
         // blocos extras (terra arada e plantação): ids de edição logo depois das plantas
         const EXTRAS = ['arado', 'arado_semente', 'arado_s1', 'arado_s2', 'arado_s3', 'tocha'];
         const ID_ARADO = NTIPOS + NPLANTAS + 1;     // 30 terra arada
@@ -621,14 +632,58 @@
         // tochas de parede: 39 apoiada em +X · 40 em -X · 41 em +Z · 42 em -Z (a tocha em pé é a 38)
         for (let i = 0; i < 4; i++) NOME_ID.push('tocha');
         const ehTochaId = (id) => id >= ID_TOCHA && id <= ID_TOCHA + 4;
-        const TOCHA_DIR = [null, [1, 0], [-1, 0], [0, 1], [0, -1]];   // direção (x, z) do bloco que sustenta a tocha
-        // itens que não são blocos (vêm depois das 2 plantas coletáveis)
-        const ITEM_SEMENTE = NTIPOS + 2, ITEM_TRIGO = NTIPOS + 3, ITEM_ENXADA = NTIPOS + 4, ITEM_GRAVETO = NTIPOS + 5;
-        const ITEM_CARNE = NTIPOS + 6, ITEM_ESPADA = NTIPOS + 7, ITEM_PICARETA = NTIPOS + 8;
-        const ITEM_PA = NTIPOS + 9, ITEM_LANCA = NTIPOS + 10, ITEM_TOCHA = NTIPOS + 11;
+        const TOCHA_DIR = [null, [1, 0], [-1, 0], [0, 1], [0, -1]];
+        // ---------- porta e cama (blocos especiais, desenhados como objetos 3D) ----------
+        // porta (2 blocos de altura, fica na aresta do bloco): metade de baixo = ID_PORTA + orientação*2 + aberta · metade de cima = +8
+        const ID_PORTA = ID_TOCHA + 5;                 // 43..58
+        // cama (2 blocos de comprimento): pé = ID_CAMA + direção da cabeceira · cabeceira = +4
+        const ID_CAMA = ID_PORTA + 16;                 // 59..66
+        const ID_MAXBLOCO = ID_PORTA + 47;               // portas espelhadas: ID_PORTA+32 .. +47 (mesma ordem das normais)
+        for (let i = 0; i < 16; i++) NOME_ID.push('porta');
+        for (let i = 0; i < 8; i++) NOME_ID.push('cama');
+        for (let i = 0; i < 24; i++) NOME_ID.push('porta');   // 24 reservados + 16 espelhadas
+        const DIRS4 = [[0, -1], [1, 0], [0, 1], [-1, 0]];   // 0: -Z · 1: +X · 2: +Z · 3: -X
+        const ehPortaId = (id) => (id >= ID_PORTA && id < ID_PORTA + 16) || (id >= ID_PORTA + 32 && id < ID_PORTA + 48);
+        const portaEsp = (id) => id >= ID_PORTA + 32;                       // dobradiça no outro lado (espelhada)
+        const portaOff = (id) => id - ID_PORTA - (id >= ID_PORTA + 32 ? 32 : 0);   // 0..15
+        const portaBaixo = (id) => portaOff(id) < 8;
+        const portaIdx = (id) => portaOff(id) & 7;                          // orientação*2 + aberta
+        const portaBase = (id) => id - portaOff(id);                        // primeiro id da família (normal ou espelhada)
+        const ehCamaId = (id) => id >= ID_CAMA && id <= ID_CAMA + 7;
+        const ehEspecialId = (id) => ehTochaId(id) || ehPortaId(id) || ehCamaId(id);
+        const portaAberta = (id) => ehPortaId(id) && ((portaOff(id) & 1) === 1);
+        const ehSolidoBloco = (b) => b > 0 && !ehTochaId(b) && !portaAberta(b);
+        // caixa (x0,x1,z0,z1) da porta dentro da célula (cx,cz): fechada = fina na aresta · aberta = fina na ponta da dobradiça
+        const PORTA_T = 0.16;
+        function portaRect(id, cx, cz) {
+            const idx = portaIdx(id), o = idx >> 1, aberta = idx & 1, esp = portaEsp(id);
+            const n = DIRS4[o], ax = -n[1], az = n[0];
+            const u0 = aberta ? -0.5 : 0.5 - PORTA_T, u1 = 0.5;
+            const v0 = aberta ? (esp ? -0.5 : 0.5 - PORTA_T) : -0.5, v1 = aberta ? (esp ? -0.5 + PORTA_T : 0.5) : 0.5;
+            const xa = cx + n[0] * u0 + ax * v0, xb = cx + n[0] * u1 + ax * v1;
+            const za = cz + n[1] * u0 + az * v0, zb = cz + n[1] * u1 + az * v1;
+            return [Math.min(xa, xb), Math.max(xa, xb), Math.min(za, zb), Math.max(za, zb)];
+        }
+        // ponto (px,pz) está perto da parte fina da porta? (m = folga, usada pela câmera)
+        function portaPonto(id, px, pz, m) {
+            const r = portaRect(id, Math.floor(px + 0.5), Math.floor(pz + 0.5));
+            return px > r[0] - m && px < r[1] + m && pz > r[2] - m && pz < r[3] + m;
+        }
+        // o corpo (x0..x1, z0..z1) bate neste bloco? portas só batem na parte fina
+        function bateBloco(b, ix, iz, x0, x1, z0, z1) {
+            if (!b) return false;
+            if (ehPortaId(b)) { const r = portaRect(b, ix, iz); return x0 < r[1] && x1 > r[0] && z0 < r[3] && z1 > r[2]; }
+            return ehSolidoBloco(b);
+        }   // direção (x, z) do bloco que sustenta a tocha
+        // itens que não são blocos: vêm depois dos 5 itens de planta (capim, cogumelo, 3 flores) na lista ITENS
+        const IB = NTIPOS + 5;
+        const ITEM_SEMENTE = IB, ITEM_TRIGO = IB + 1, ITEM_ENXADA = IB + 2, ITEM_GRAVETO = IB + 3;
+        const ITEM_CARNE = IB + 4, ITEM_ESPADA = IB + 5, ITEM_PICARETA = IB + 6;
+        const ITEM_PA = IB + 7, ITEM_LANCA = IB + 8, ITEM_TOCHA = IB + 9;
         // não existem mais itens "Minério" separados: o bloco de ferro/ouro (id - 1) é quebrado com picareta, colocado e usado na bancada
-        const ITEM_CARVAO = NTIPOS + 12, ITEM_BARRA_FERRO = NTIPOS + 13, ITEM_BARRA_OURO = NTIPOS + 14;
-        const ITEM_LA = NTIPOS + 15, ITEM_CAMA = NTIPOS + 16;   // lã (cai da ovelha) e cama
+        const ITEM_CARVAO = IB + 10, ITEM_BARRA_FERRO = IB + 11, ITEM_BARRA_OURO = IB + 12;
+        const ITEM_LA = IB + 13, ITEM_CAMA = IB + 14, ITEM_PORTA = IB + 15;
+        const ITEM_PAO = IB + 16;   // pão (comestível: enche 3 barras de fome)
         const ITEM_MINERIO_FERRO = ID.minerio_ferro - 1, ITEM_MINERIO_OURO = ID.minerio_ouro - 1;
         const ehPedra = (id) => id === ID.rocha || id === ID.pedra || id === ID.musgo || id === ID.pedra_negra
             || id === ID.minerio_carvao || id === ID.minerio_ferro || id === ID.minerio_ouro;   // blocos que a picareta quebra rápido
@@ -651,7 +706,9 @@
                 { saida: ITEM_ESPADA, qtd: 1, forma: [[T], [T], [G]] },                   // 2 tábuas em cima + graveto embaixo -> espada
                 { saida: ITEM_PICARETA, qtd: 1, forma: [[T, T, T], [V, G, V], [V, G, V]] }, // 3 tábuas em cima + 2 gravetos -> picareta
                 { saida: ITEM_LANCA, qtd: 1, forma: [[T, G, G]] },                        // 1 tábua + 2 gravetos na horizontal -> lança
-                { saida: ITEM_CAMA, qtd: 1, forma: [[W, W, W], [T, T, T]] },              // 3 lã em cima + 3 tábuas embaixo -> cama
+                { saida: ITEM_CAMA, qtd: 1, forma: [[W, W, W], [T, T, T]] },
+                { saida: ITEM_PORTA, qtd: 1, forma: [[T, T], [T, T], [T, T]] },            // 6 tábuas (2 colunas x 3 linhas na vertical) -> porta              // 3 lã em cima + 3 tábuas embaixo -> cama
+                { saida: ITEM_PAO, qtd: 1, forma: [[ITEM_TRIGO, ITEM_TRIGO, ITEM_TRIGO]] }, // 3 trigos na horizontal -> pão
                 { saida: ITEM_TOCHA, qtd: 1, forma: [[C], [G]] },                         // 1 carvão + 1 graveto -> tocha
                 { saida: ITEM_BARRA_FERRO, qtd: 1, forma: [[ITEM_MINERIO_FERRO]] },        // minério de ferro -> barra de ferro
                 { saida: ITEM_BARRA_OURO, qtd: 1, forma: [[ITEM_MINERIO_OURO]] }          // minério de ouro -> barra de ouro
@@ -687,10 +744,11 @@
         [ID.grama, ID.log, ID.betula, ID.abeto, ID.carvalho_negro, ID.tronco_morto,
          ID.folhas, ID.folhas_betula, ID.folhas_abeto, ID.folhas_negro, ID.folhas_secas].forEach(i => { DROPA_BLOCO[i] = 1; });
         const itemDeBloco = (id) => (id > 0 && id <= NTIPOS && DROPA_BLOCO[id]) ? id - 1 : -1;
-        const itemDePlanta = (tp) => tp === 0 ? NTIPOS : tp === 3 ? NTIPOS + 1 : -1;   // capim e cogumelo
+        const itemDePlanta = (tp) => tp === 0 ? NTIPOS : tp === 3 ? NTIPOS + 1 : tp === 8 ? NTIPOS + 2 : tp === 9 ? NTIPOS + 3 : tp === 10 ? NTIPOS + 4 : -1;   // capim, cogumelo e flores
         const COMIDA = {};                 // item -> pontos de fome que restaura (2 pontos = 1 ícone cheio)
         COMIDA[NTIPOS + 1] = 1;            // cogumelo: enche metade de um ícone
         COMIDA[ITEM_CARNE] = 2;            // carne: enche um ícone inteiro
+        COMIDA[ITEM_PAO] = 6;              // pão: enche 3 ícones de fome
 
         const CAPS = {
             grama: 26000, terra: 26000, rocha: 40000, pedra_negra: 12000,
@@ -823,7 +881,7 @@
         // ============================================================
         // TEXTURAS E MATERIAIS
         // ============================================================
-        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ, TEX_ITENS, TEX_TOCHA;
+        let GEOS, MAT, BLOCOS, TEX_PLANTAS, GEO_CRUZ, TEX_ITENS, TEX_TOCHA, TEX_PORTA, TEX_CAMA;
 
         function cruzGeo(w, h) {
             const g = new THREE.BufferGeometry();
@@ -1047,6 +1105,34 @@
             }, false);
             TEX_TOCHA = tochaTex;
 
+            // ----- Porta (textura 16x32: moldura + 4 painéis + maçaneta) -----
+            TEX_PORTA = pixTex(16, 32, (p) => {
+                const r = criarPRNG(611);
+                for (let y = 0; y < 32; y++) for (let x = 0; x < 16; x++) {
+                    const moldura = x <= 1 || x >= 14 || y <= 1 || y >= 30;
+                    const pa = (x >= 3 && x <= 12) && ((y >= 3 && y <= 13) || (y >= 18 && y <= 28));
+                    let c;
+                    if (moldura) c = x % 2 ? 0x8a6a3c : 0x7a5a32;
+                    else if (pa) {
+                        const borda = x === 3 || y === 3 || y === 18;
+                        const claro = x === 12 || y === 13 || y === 28;
+                        c = borda ? 0x6d5230 : claro ? 0xc29a62 : (x % 3 === 0 ? 0xa57c48 : 0x9a7040);
+                    } else c = x % 4 === 2 ? 0x8f6a3a : 0xa97f4b;
+                    p(x, y, variaCor(c, 0.12, r));
+                }
+                for (let y = 15; y <= 16; y++) for (let x = 11; x <= 12; x++) p(x, y, y === 15 ? '#f6dc78' : '#d9ae32');
+            }, false);
+            // ----- Cama: coberta vermelha e lençol branco (a madeira vem das tábuas) -----
+            TEX_CAMA = {
+                manta: tex16(641, (x, y, r) => {
+                    let c = 0xc23a3a;
+                    if (y % 5 === 0) c = 0xa62d2d; else if ((x + y) % 7 === 0) c = 0xd45050;
+                    return variaCor(c, 0.1, r);
+                }),
+                branco: tex16(651, (x, y, r) => variaCor(y % 6 === 5 ? 0xd8d4cc : 0xf4f2ec, 0.06, r)),
+                madeira: null
+            };
+
             // ----- Terra arada -----
             const aradoPx = (x, y, r) => {
                 const sulco = (y % 4) < 2;
@@ -1104,13 +1190,25 @@
                 arado_semente: [terra, terra, aradoSementeTopo, terra, terra, terra].map(L),
             };
 
-            MAT.arado_s1 = MAT.arado; MAT.arado_s2 = MAT.arado; MAT.arado_s3 = MAT.arado;   // plantação: o trigo é um sprite em cima
+            MAT.arado_s1 = MAT.arado; MAT.arado_s2 = MAT.arado; MAT.arado_s3 = MAT.arado;
+            MAT.porta = new THREE.MeshLambertMaterial({ map: TEX_PORTA });
+            {   // porta espelhada: mesma textura invertida na horizontal (a maçaneta fica do lado do meio, junto da outra porta)
+                const tpe = TEX_PORTA.clone();
+                tpe.wrapS = THREE.RepeatWrapping;
+                tpe.repeat.x = -1; tpe.offset.x = 1;
+                tpe.needsUpdate = true;
+                MAT.portaEsp = new THREE.MeshLambertMaterial({ map: tpe });
+            }
+            TEX_CAMA.madeira = MAT.tabua.map;   // plantação: o trigo é um sprite em cima
 
             BLOCOS = {};
             TIPOS.concat(EXTRAS).forEach(t => {
                 const m = Array.isArray(MAT[t]) ? MAT[t][0] : MAT[t];
                 BLOCOS[t] = { nome: INFO[t][0], dureza: INFO[t][1], cor: INFO[t][2], icone: m.map.image.toDataURL() };
             });
+
+            BLOCOS.porta = { nome: 'Porta', dureza: 0.8, cor: 0xa97f4b, icone: '' };
+            BLOCOS.cama = { nome: 'Cama', dureza: 0.6, cor: 0xc23a3a, icone: '' };
 
             // ----- Plantas (cruzadas, com vento) -----
             const planta = (seed, desenhar) => pixTex(16, 16, (p) => desenhar(p, criarPRNG(seed)), false);
@@ -1173,6 +1271,66 @@
                         const x = 1 + Math.floor(r() * 14), y = 1 + Math.floor(r() * 4);
                         p(x, y, '#e8c64a'); p(x, y + 1, '#c9a132');
                     }
+                }),
+                planta(509, (p, r) => {   // flor vermelha (rosa)
+                    // caule com folhas
+                    p(7, 14, '#4a3018'); p(8, 14, '#4a3018');
+                    p(7, 13, '#6a4a2a'); p(8, 13, '#6a4a2a');
+                    p(7, 12, '#6a4a2a'); p(8, 12, '#6a4a2a');
+                    p(7, 11, '#8a5a2a'); p(8, 11, '#8a5a2a');
+                    // folhas do caule
+                    p(6, 11, '#3f7a2a'); p(9, 11, '#3f7a2a');
+                    p(6, 10, '#3f7a2a'); p(9, 10, '#3f7a2a');
+                    // pétalas vermelhas em volta do centro
+                    p(7, 9, '#d94a4a'); p(8, 9, '#d94a4a');
+                    p(6, 10, '#d94a4a'); p(9, 10, '#d94a4a');
+                    p(6, 9, '#d94a4a'); p(9, 9, '#d94a4a');
+                    p(7, 8, '#c23a3a'); p(8, 8, '#c23a3a');
+                    p(6, 8, '#c23a3a'); p(9, 8, '#c23a3a');
+                    // centro da flor
+                    p(7, 7, '#f4d98e'); p(8, 7, '#f4d98e');
+                    p(6, 7, '#e8c64a'); p(9, 7, '#e8c64a');
+                    p(7, 6, '#e8c64a'); p(8, 6, '#e8c64a');
+                }),
+                planta(510, (p, r) => {   // flor amarela (girassol)
+                    // caule com folhas
+                    p(7, 14, '#4a3018'); p(8, 14, '#4a3018');
+                    p(7, 13, '#6a4a2a'); p(8, 13, '#6a4a2a');
+                    p(7, 12, '#6a4a2a'); p(8, 12, '#6a4a2a');
+                    p(7, 11, '#8a5a2a'); p(8, 11, '#8a5a2a');
+                    // folhas do caule
+                    p(6, 11, '#3f7a2a'); p(9, 11, '#3f7a2a');
+                    p(6, 10, '#3f7a2a'); p(9, 10, '#3f7a2a');
+                    // pétalas amarelas ao redor
+                    p(7, 9, '#f0c24a'); p(8, 9, '#f0c24a');
+                    p(6, 10, '#f0c24a'); p(9, 10, '#f0c24a');
+                    p(6, 9, '#f0c24a'); p(9, 9, '#f0c24a');
+                    p(7, 8, '#e8c64a'); p(8, 8, '#e8c64a');
+                    p(6, 8, '#e8c64a'); p(9, 8, '#e8c64a');
+                    // centro escuro
+                    p(7, 7, '#8a5a2a'); p(8, 7, '#8a5a2a');
+                    p(6, 7, '#6a4a2a'); p(9, 7, '#6a4a2a');
+                    p(7, 6, '#6a4a2a'); p(8, 6, '#6a4a2a');
+                }),
+                planta(511, (p, r) => {   // flor azul
+                    // caule com folhas
+                    p(7, 14, '#4a3018'); p(8, 14, '#4a3018');
+                    p(7, 13, '#6a4a2a'); p(8, 13, '#6a4a2a');
+                    p(7, 12, '#6a4a2a'); p(8, 12, '#6a4a2a');
+                    p(7, 11, '#8a5a2a'); p(8, 11, '#8a5a2a');
+                    // folhas do caule
+                    p(6, 11, '#3f7a2a'); p(9, 11, '#3f7a2a');
+                    p(6, 10, '#3f7a2a'); p(9, 10, '#3f7a2a');
+                    // pétalas azuis ao redor
+                    p(7, 9, '#4a8bd9'); p(8, 9, '#4a8bd9');
+                    p(6, 10, '#4a8bd9'); p(9, 10, '#4a8bd9');
+                    p(6, 9, '#4a8bd9'); p(9, 9, '#4a8bd9');
+                    p(7, 8, '#2e6fa8'); p(8, 8, '#2e6fa8');
+                    p(6, 8, '#2e6fa8'); p(9, 8, '#2e6fa8');
+                    // centro branco
+                    p(7, 7, '#ffffff'); p(8, 7, '#ffffff');
+                    p(6, 7, '#e4e1da'); p(9, 7, '#e4e1da');
+                    p(7, 6, '#e4e1da'); p(8, 6, '#e4e1da');
                 })
             );
             // ícones/sprites dos itens novos
@@ -1292,6 +1450,36 @@
                 minerio_ferro: minerioFerroTex,
                 minerio_ouro: minerioOuroTex
             };
+            // ícones novos: cama (vista lateral) e porta
+            TEX_ITENS.cama = px16((p) => {
+                for (let y = 4; y <= 13; y++) for (let x = 1; x <= 3; x++) p(x, y, (x === 1 || y === 4) ? '#6d5230' : (x === 3 ? '#a97f4b' : '#8a6a3c'));   // cabeceira
+                for (let y = 8; y <= 13; y++) for (let x = 13; x <= 14; x++) p(x, y, x === 14 ? '#6d5230' : '#8a6a3c');                                       // peseira
+                for (let y = 9; y <= 11; y++) for (let x = 4; x <= 12; x++) p(x, y, y === 9 ? '#ffffff' : '#e4e1da');                                          // colchão
+                for (let x = 4; x <= 6; x++) { p(x, 8, '#ffffff'); p(x, 9, '#f6f4ee'); }                                                                       // travesseiro
+                for (let y = 8; y <= 11; y++) for (let x = 7; x <= 12; x++) p(x, y, y === 8 ? '#e86a6a' : (y === 11 ? '#8f2424' : ((x + y) % 3 === 0 ? '#b83232' : '#cf4040')));   // coberta
+                for (let x = 1; x <= 14; x++) { p(x, 12, '#a97f4b'); p(x, 13, '#6d5230'); }                                                                     // estrado
+                for (const x of [1, 2, 13, 14]) { p(x, 14, '#3a2a1c'); p(x, 15, '#3a2a1c'); }                                                                   // pés
+            });
+            TEX_ITENS.porta = px16((p) => {
+                for (let y = 1; y <= 14; y++) for (let x = 4; x <= 11; x++) {
+                    const borda = (x === 4 || x === 11 || y === 1 || y === 14);
+                    const painel = (x >= 6 && x <= 9) && ((y >= 3 && y <= 6) || (y >= 9 && y <= 12));
+                    p(x, y, borda ? '#5b4329' : painel ? '#8a6a3c' : '#a97f4b');
+                }
+                p(10, 8, '#f6dc78'); p(10, 9, '#d9ae32');
+            }),
+            TEX_ITENS.pao = px16((p) => {
+                // pão: miolo dourado claro com crosta marrom ao redor e detalhes de farinha
+                for (let y = 3; y <= 12; y++) for (let x = 2; x <= 13; x++) {
+                    const borda = (x === 2 || x === 13 || y === 3 || y === 12);
+                    if (borda) p(x, y, '#8a5a2a');               // crosta escura
+                    else p(x, y, h2(x, y, 91) < 0.45 ? '#e8c97a' : '#f4d98e');  // miolo dourado
+                }
+                // farinha solta no topo
+                for (const [x, y] of [[4, 4], [6, 3], [8, 4], [10, 3], [12, 4], [5, 5], [9, 5], [7, 6]]) p(x, y, '#f3efe0');
+                // riscos de assadura
+                for (let x = 3; x <= 12; x++) p(x, 6, '#7a4a1a');
+            });
             GEO_CRUZ = cruzGeo(1, 1);
         }
 
@@ -1368,6 +1556,8 @@
             const caixa = (w, h, d, mat, x, y, z) => {
                 const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
                 m.position.set(x, y, z);
+                m.castShadow = false;
+                m.receiveShadow = false;
                 return m;
             };
             const articulacao = (nome, x, y, z) => {
@@ -1394,7 +1584,8 @@
             root.add(cabeca);
             if (fem) root.add(caixa(0.68, 1.1, 0.28, M(lisa(8, 8, cab)), 0, 2.0, -0.28));
 
-            root.scale.setScalar(ESCALA_PERSONAGEM);      // mesma altura do Minecraft (1,8 bloco)
+            root.scale.setScalar(ESCALA_PERSONAGEM);
+            root.rotation.order = 'YXZ';                 // permite deitar o boneco (rotação em X) e girar para a direção da cama      // mesma altura do Minecraft (1,8 bloco)
 
             return {
                 mesh: root, armL: pArmL, armR: pArmR, legL: pLegL, legR: pLegR, head: cabeca, corpo,
@@ -1413,7 +1604,8 @@
             h: 0x9a7444, H: 0x6b4a2a, k: 0x4a3018,                    // madeira: clara, média, escura
             l: 0x8a4a2a, L: 0x5e301c,                                 // couro do cabo
             t: 0x3a2a1c, T: 0x241810,                                 // cabeça carbonizada da tocha
-            '1': 0xfff3c0, '2': 0xffd166, '3': 0xffa63d, '4': 0xe8641a   // chama (brilha sozinha)
+            '1': 0xfff3c0, '2': 0xffd166, '3': 0xffa63d, '4': 0xe8641a,   // chama (brilha sozinha)
+            P: 0xe8c97a, p: 0xd9b25a                                    // pão: miolo dourado, crosta
         };
         const VOX_BRILHO = '1234';
         // linhas de cima para baixo; "grip" = linha onde fica a mão; "cx" = coluna central (eixo do cabo)
@@ -1489,6 +1681,22 @@
                     '.hHk.', '.Hhk.', '.hHk.', '.Hhk.', '.hHk.', '.Hhk.', '.hHk.', '.Hhk.',
                     '.kkk.'
                 ]
+            },
+            pao: {
+                vs: 0.06, d: 2, grip: 8, seed: 17, linhas: [
+                    '.....PPPP.....',
+                    '....PPPPPP....',
+                    '...PPPPPPPP...',
+                    '..PPPPPPPPPP..',
+                    '.PPPPPPPPPPPP.',
+                    'PPPPPPPPPPPPPP',
+                    'PPPPPPPPPPPPPP',
+                    '.PPPPPPPPPPPP.',
+                    '..PPPPPPPPPP..',
+                    '...PPPPPPPP...',
+                    '....PPPPPP....',
+                    '.....PPPP.....'
+                ]
             }
         };
         // cantos de cada face (cubo unitário), no sentido anti-horário visto de fora
@@ -1520,7 +1728,7 @@
                 const ch = cell(c, r, k);
                 if (ch === '.') continue;
                 const alvo = VOX_BRILHO.indexOf(ch) >= 0 ? glow : lit;
-                const f = 0.93 + h2(c * 7 + k * 3, r * 5, def.seed) * 0.14;
+                const f = 1.0;
                 col.setHex(VOX_COR[ch]).multiplyScalar(f);
                 for (const fc of VOX_FACES) {
                     if (cell(c + fc.n[0], r - fc.n[1], k + fc.n[2]) !== '.') continue;
@@ -1572,6 +1780,8 @@
         function modeloLanca(sp) { return modeloVox('lanca', sp); }
         function modeloTochaMao(sp) { return modeloVox('tocha', sp); }
 
+        function modeloPao(sp) { return modeloVox('pao', sp); }
+
         // Coloca a ferramenta na mão, EM PÉ (lâmina/cabeça para cima, cabo na mão).
         // Os modelos são desenhados na vertical (+Y = ponta). No braço (que aponta para -Y), girar -90° em X
         // faz a ponta subir quando o braço está esticado para frente (1ª pessoa); em 3ª pessoa o braço pende,
@@ -1584,13 +1794,58 @@
                 g.position.set(0, -0.84, -0.02);
                 g.rotation.set(-Math.PI / 2 + 0.05, 0.38 + giro, -0.04);   // ry mostra a lateral (volume 3D)
             } else {
-                g.position.set(0, -0.88, 0.13);
-                g.rotation.set(tipo === 'tocha' ? 0.35 : 0.55, giro, -0.04);
+                // mão esquerda (3ª pessoa visível por trás): ferramenta na ponta do braço esquerdo, voltada para a frente
+                const zFora = tipo === 'tocha' ? 0.18 : -0.06;    // tocha para a frente da mão (z positivo), outras ferramentas levemente pra fora
+                const yFora = tipo === 'tocha' ? -0.72 : -0.88;   // tocha um pouco mais alta na mão
+                g.position.set(0, yFora, zFora);
+                g.rotation.set(tipo === 'tocha' ? 0.35 : 0.55, 0, -0.04);
             }
         }
 
+        // ============================================================
+        // CAMA (2 blocos de comprimento) e PORTA — modelos 3D
+        // ============================================================
+        const PORTA_GEO = new THREE.BoxGeometry(1, 2, 0.16);
+        {   // face de dentro (+Z local): inverte a textura na horizontal para a maçaneta ficar do mesmo lado nas duas faces (junto da outra porta)
+            const uvPorta = PORTA_GEO.attributes.uv;
+            for (let i = 16; i < 20; i++) uvPorta.setX(i, 1 - uvPorta.getX(i));
+            uvPorta.needsUpdate = true;
+        }
+        const PORTA_ITEM_GEO = new THREE.BoxGeometry(0.5, 1, 0.1);
+        const _bedGeos = {};
+        const bedGeo = (w, h, l) => _bedGeos[w + ',' + h + ',' + l] || (_bedGeos[w + ',' + h + ',' + l] = new THREE.BoxGeometry(w, h, l));
+        const CAMA_MATS = {};
+        // origem no centro do volume; +Z = lado da cabeceira. semProf = desenhada por cima (mão em 1ª pessoa)
+        function modeloCama(semProf) {
+            const k = semProf ? 'fp' : 'n';
+            if (!CAMA_MATS[k]) {
+                const mk = (map) => { const m = new THREE.MeshLambertMaterial({ map }); if (semProf) m.depthTest = false; return m; };
+                CAMA_MATS[k] = { manta: mk(TEX_CAMA.manta), branco: mk(TEX_CAMA.branco), madeira: mk(TEX_CAMA.madeira) };
+            }
+            const M = CAMA_MATS[k];
+            const outer = new THREE.Group();
+            const g = new THREE.Group();
+            g.position.y = -0.375;
+            outer.add(g);
+            const caixa = (w, h, l, mat, x, y, z) => {
+                const m = new THREE.Mesh(bedGeo(w, h, l), mat);
+                m.position.set(x, y, z);
+                if (semProf) m.renderOrder = 1000;
+                g.add(m);
+            };
+            for (const sx of [-1, 1]) for (const sz of [-1, 1]) caixa(0.12, 0.2, 0.12, M.madeira, sx * 0.44, 0.1, sz * 0.94);   // pés
+            caixa(1.0, 0.12, 2.0, M.madeira, 0, 0.26, 0);            // estrado
+            caixa(0.94, 0.2, 1.94, M.branco, 0, 0.42, 0);            // colchão
+            caixa(0.98, 0.1, 1.32, M.manta, 0, 0.55, -0.31);         // coberta vermelha
+            caixa(0.66, 0.12, 0.4, M.branco, 0, 0.58, 0.72);         // travesseiro
+            caixa(1.0, 0.55, 0.1, M.madeira, 0, 0.47, 0.95);         // cabeceira
+            caixa(1.0, 0.34, 0.08, M.madeira, 0, 0.37, -0.96);       // peseira
+            g.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+            return outer;
+        }
+
         function descartarPersonagem(p) {
-            if (p.itemMesh && p.armR) p.armR.remove(p.itemMesh);   // miniatura usa materiais compartilhados
+            if (p.itemMesh && p.armL) p.armL.remove(p.itemMesh);   // miniatura usa materiais compartilhados
             p.mesh.traverse(o => {
                 if (o.geometry) o.geometry.dispose();
                 if (o.material) {
@@ -1801,6 +2056,8 @@
                 m.count = 0;
                 m.frustumCulled = false;
                 m.visible = false;
+                m.castShadow = false;
+                m.receiveShadow = false;
                 m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
                 this.mesh = m; this.cap = cap;
                 this.mapa = new Map(); this.donos = []; this.sujo = false;
@@ -1916,7 +2173,7 @@
 
             const COR_NEVOA = 0x0b1114;
             const RAIO_CHUNKS = IS_TOUCH ? 3 : 4;
-            const NEVOA_FIM = RAIO_CHUNKS * CH - 6;
+            const NEVOA_FIM = RAIO_CHUNKS * CH + 20;   // neblina um pouco mais distante para ver as nuvens
 
             const scene = new THREE.Scene();
             scene.background = new THREE.Color(COR_NEVOA);
@@ -1925,6 +2182,8 @@
             const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.1, 300);
             camera.rotation.order = 'YXZ';
             const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+            renderer.shadowMap.enabled = false;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             const prMax = Math.min(window.devicePixelRatio || 1, IS_TOUCH ? 1.5 : 2);
             let pr = prMax;
             renderer.setPixelRatio(pr);
@@ -1941,10 +2200,18 @@
             window.addEventListener('orientationchange', () => setTimeout(onResize, 250));
 
             // ---------- Luzes (clima de terror) ----------
-            const hemi = new THREE.HemisphereLight(0x8aa4bc, 0x1c1a14, 0.75);
+            const hemi = new THREE.HemisphereLight(0xffffff, 0x4a4a4a, 1.2);
             scene.add(hemi);
-            const lua = new THREE.DirectionalLight(0x9db4e8, 0.7);
-            lua.position.set(-30, 50, -20);
+            const lua = new THREE.DirectionalLight(0xffffff, 2.0);
+            // Light positioned above and slightly to the side to cast consistent shadows
+            lua.position.set(0, 250, -100);
+            lua.castShadow = false;
+            lua.shadow.camera.left = -400;
+            lua.shadow.camera.right = 400;
+            lua.shadow.camera.top = 400;
+            lua.shadow.camera.bottom = -400;
+            lua.shadow.mapSize.width = 4096;
+            lua.shadow.mapSize.height = 4096;
             scene.add(lua);
 
             // ---------- Céu: estrelas + lua ----------
@@ -1986,6 +2253,66 @@
                 ceu.userData.lua = luaMesh;
             }
 
+            // ---------- Nuvens (emitem sombras, reagem à chuva) ----------
+            const NUVENS_N = 14;
+            const nuvens = [];
+            function nuvemGeo() {
+                const g = new THREE.Group();
+                const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, fog: false });   // nuvens nao sao escondidas pela neblina
+                for (let i = 0; i < 8; i++) {
+                    const w = 5 + Math.random() * 5, h = 2.5 + Math.random() * 2, d = 5 + Math.random() * 5;
+                    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+                    m.position.set((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 10);
+                    g.add(m);
+                }
+                return g;
+            }
+            const COR_NUVEM_BASE = new THREE.Color(0xffffff);
+            const COR_NUVEM_CHUVA = new THREE.Color(0x7a8088);
+            function reposicionarNuvem(g, cx, cz) {
+                const ang = Math.random() * Math.PI * 2;
+                const raio = 120 + Math.random() * 120;   // mais afastadas e visiveis no ceu
+                g.position.set(
+                    cx + Math.cos(ang) * raio,
+                    90 + Math.random() * 40,               // alta no ceu
+                    cz + Math.sin(ang) * raio
+                );
+                // Todos os nuvens têm a mesma direção de movimento
+                const WIND_X = 0.01;
+                const WIND_Z = 0.005;
+                g.userData.vx = WIND_X;
+                g.userData.vz = WIND_Z;
+                g.userData.alvoY = g.position.y;   // definida uma vez, nao muda a cada frame (sem tremor)
+            }
+            for (let i = 0; i < NUVENS_N; i++) {
+                const g = nuvemGeo();
+                reposicionarNuvem(g, 0, 0);
+                scene.add(g);
+                nuvens.push(g);
+            }
+            function atualizarNuvens(dt) {
+                const chuva = intChuva > 0.1;
+                const alvoCor = chuva ? COR_NUVEM_CHUVA : COR_NUVEM_BASE;
+                for (const g of nuvens) {
+                    // movimento contínuo em linha reta pelo céu
+                    g.position.x += g.userData.vx * dt * 30;
+                    g.position.z += g.userData.vz * dt * 30;
+                    // mantém nuvens ao redor do jogador (reposiciona quem se afastou)
+                    const dx = g.position.x - posX, dz = g.position.z - posZ;
+                    const dist = Math.hypot(dx, dz);
+                    if (dist > 150) {
+                        const ang = Math.atan2(dz, dx);
+                        reposicionarNuvem(g, posX + Math.cos(ang) * 120, posZ + Math.sin(ang) * 120);
+                    }
+                    // cor suave: branca no limpo, cinza escuro na chuva
+                    g.traverse(o => {
+                        if (o.isMesh) o.material.color.lerpColors(o.material.color, alvoCor, dt * 0.8);
+                    });
+                    // altura fixa um pouco mais baixa no ceu (sem descer quando chove)
+                    g.position.y += (85 - g.position.y) * dt * 1.0;
+                }
+            }
+
             // ---------- Chuva (partículas + clima) ----------
             const CHUVA_N = 900;
             const chuvaGeo = new THREE.BufferGeometry();
@@ -2020,7 +2347,7 @@
             });
             const renderId = new Map();
             const matPlanta = TEX_PLANTAS.map(tx => {
-                const m = new THREE.MeshLambertMaterial({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide });
+                const m = new THREE.MeshBasicMaterial({ map: tx, alphaTest: 0.4, side: THREE.DoubleSide });
                 ventar(m, 'planta');
                 return m;
             });
@@ -2092,6 +2419,7 @@
                 brilho.position.y = -0.22;
                 chama.add(brilho);
                 g.add(modelo.children[0], chama);
+                modelo.traverse(o => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
                 scene.add(raiz);
                 let luz = null;
                 if (tochaObjs.size < 14) {
@@ -2112,6 +2440,61 @@
                 scene.remove(o.g);
                 if (o.luz) { scene.remove(o.luz); if (o.luz.dispose) o.luz.dispose(); }
                 tochaObjs.delete(k);
+            }
+            // ----- Portas: painel fino na aresta do bloco, gira em torno da dobradiça -----
+            const portaObjs = new Map(), portaPrev = new Map(), camaObjs = new Map();
+            function addPorta(x, y, z, id) {
+                const k = numKey(x, y, z);
+                const idx = portaIdx(id), o = idx >> 1, aberta = idx & 1, esp = portaEsp(id);
+                const n = DIRS4[o], t = 0.16;
+                const ax = -n[1], az = n[0];                              // direção ao longo da porta
+                const sg = esp ? -1 : 1;                                  // espelhada: dobradiça no extremo -a
+                const piv = new THREE.Group();                            // pivô = dobradiça, rente à aresta
+                piv.position.set(x + n[0] * (0.5 - t / 2) + ax * 0.5 * sg, y, z + n[1] * (0.5 - t / 2) + az * 0.5 * sg);
+                const th = Math.atan2(-az, ax);
+                const m = new THREE.Mesh(PORTA_GEO, esp ? MAT.portaEsp : MAT.porta);
+                m.position.set(-0.5 * sg, 1, 0);
+                m.castShadow = false;
+                m.receiveShadow = false;
+                piv.add(m);
+                const alvo = aberta ? (esp ? -Math.PI / 2 : Math.PI / 2) : 0;
+                let ang = alvo;
+                const pv = portaPrev.get(k);
+                if (pv && performance.now() - pv.t < 250) ang = pv.ang;   // continua de onde a porta estava (animação)
+                portaPrev.delete(k);
+                piv.rotation.y = th + ang;
+                scene.add(piv);
+                portaObjs.set(k, { piv, th, ang, alvo });
+            }
+            function remPorta(k) {
+                const o = portaObjs.get(k);
+                if (!o) return;
+                portaPrev.set(k, { ang: o.ang, t: performance.now() });
+                scene.remove(o.piv);
+                portaObjs.delete(k);
+            }
+            function atualizarPortas(dt) {
+                for (const o of portaObjs.values()) {
+                    if (o.ang === o.alvo) continue;
+                    o.ang += (o.alvo - o.ang) * (1 - Math.exp(-14 * dt));
+                    if (Math.abs(o.alvo - o.ang) < 0.003) o.ang = o.alvo;
+                    o.piv.rotation.y = o.th + o.ang;
+                }
+            }
+            function addCama(x, y, z, id) {
+                const k = numKey(x, y, z);
+                const d = DIRS4[id - ID_CAMA];
+                const g = modeloCama(false);
+                g.position.set(x + d[0] * 0.5, y + 0.375, z + d[1] * 0.5);
+                g.rotation.y = Math.atan2(d[0], d[1]);
+                scene.add(g);
+                camaObjs.set(k, g);
+            }
+            function remCama(k) {
+                const g = camaObjs.get(k);
+                if (!g) return;
+                scene.remove(g);
+                camaObjs.delete(k);
             }
             const _tf = { px: 0, pz: 0 };
             function atualizarTochas(dt, jx, jz) {
@@ -2144,6 +2527,37 @@
                 }
             }
 
+            // ---------- Tocha na mão: a luz acompanha o jogador (o meu e os dos outros) ----------
+            // As luzes são criadas uma vez e ficam sempre na cena (intensidade 0 quando ninguém segura tocha):
+            // mudar a quantidade de luzes obrigaria o three.js a recompilar todos os materiais.
+            const luzMao = new THREE.PointLight(0xffa64d, 0, 14, 2);
+            scene.add(luzMao);
+            const luzesMaoRemotos = [];
+            for (let i = 0; i < (IS_TOUCH ? 1 : 2); i++) { const l = new THREE.PointLight(0xffa64d, 0, 14, 2); scene.add(l); luzesMaoRemotos.push(l); }
+            function ajustarLuzMao(luz, ativa, x, y, z, rot, fase, t, dt) {
+                const tr = 0.5 + 0.5 * Math.sin(t * 13 + fase) * Math.sin(t * 7.3 + fase * 2.1) + 0.25 * Math.sin(t * 31 + fase);
+                const alvo = ativa ? (1.45 + 0.5 * tr + Math.sin(t * 47 + fase) * 0.06) * (1 - 0.55 * DIA_V) : 0;
+                luz.intensity += (alvo - luz.intensity) * (1 - Math.exp(-14 * dt));    // acende/apaga suavemente
+                if (luz.intensity < 0.01 && !ativa) { luz.intensity = 0; return; }
+                luz.position.set(x + Math.sin(rot) * 0.45, y + 1.35, z + Math.cos(rot) * 0.45);   // na altura da mão, à frente do corpo
+            }
+            function atualizarLuzesMao(dt) {
+                const t = performance.now() / 1000;
+                ajustarLuzMao(luzMao, barra[slotSel] === ITEM_TOCHA && !dormindo, posX, posY, posZ, rotY, 0.7, t, dt);
+                // outros jogadores segurando tocha: as mais próximas de mim ganham luz
+                const segurando = [];
+                for (const k in remotos) {
+                    const r = remotos[k];
+                    if (r.itemMao === ITEM_TOCHA && !r.dorm) segurando.push(r);
+                }
+                segurando.sort((a, b) => Math.hypot(a.mesh.position.x - posX, a.mesh.position.z - posZ) - Math.hypot(b.mesh.position.x - posX, b.mesh.position.z - posZ));
+                for (let i = 0; i < luzesMaoRemotos.length; i++) {
+                    const r = segurando[i];
+                    if (r) ajustarLuzMao(luzesMaoRemotos[i], true, r.mesh.position.x, r.mesh.position.y, r.mesh.position.z, r.mesh.rotation.y, 2.1 + i * 1.7, t, dt);
+                    else ajustarLuzMao(luzesMaoRemotos[i], false, 0, 0, 0, 0, 0, t, dt);
+                }
+            }
+
             const numKey = (x, y, z) => ((x + 1048576) * 2097152 + (z + 1048576)) * 256 + (y + 16);
             const chaveOk = (x, y, z) => y >= -16 && y <= 239 && x > -1048576 && x < 1048576 && z > -1048576 && z < 1048576;
             function decodeKey(k) {
@@ -2156,6 +2570,8 @@
 
             function addInst(k, x, y, z, id) {
                 if (ehTochaId(id)) { addTocha(x, y, z, id); renderId.set(k, id); return; }
+                if (ehPortaId(id)) { if (portaBaixo(id)) addPorta(x, y, z, id); renderId.set(k, id); return; }   // metade de cima não desenha nada
+                if (ehCamaId(id)) { if (id < ID_CAMA + 4) addCama(x, y, z, id); renderId.set(k, id); return; }
                 _m4.makeTranslation(x, y + 0.5, z);
                 if (conj[id].add(k, _m4)) renderId.set(k, id);
             }
@@ -2163,6 +2579,8 @@
                 const id = renderId.get(k);
                 if (id === undefined) return;
                 if (ehTochaId(id)) remTocha(k);
+                else if (ehPortaId(id)) remPorta(k);
+                else if (ehCamaId(id)) remCama(k);
                 else conj[id].remove(k);
                 renderId.delete(k);
             }
@@ -2439,7 +2857,7 @@
                     if (ny < 0) continue;
                     if (ny >= YMAX) return true;
                     const n = getId(x + DX[i], ny, z + DZ[i]);
-                    if (n === 0 || ehTochaId(n)) return true;      // a tocha não esconde o bloco vizinho
+                    if (n === 0 || ehEspecialId(n)) return true;      // a tocha não esconde o bloco vizinho
                     if (ehTransp[n] && n !== id) return true;
                 }
                 if (ehFolha[id] && ((h2(x, z, y + SEED) * 4) | 0) === 0) return true;
@@ -2456,7 +2874,7 @@
                 const id = getId(x, y, z);
                 const k = numKey(x, y, z);
                 const atual = renderId.get(k);
-                const desejado = (id > 0 && visivel(x, y, z, id)) ? id : 0;
+                const desejado = (id > 0 && (ehEspecialId(id) || visivel(x, y, z, id))) ? id : 0;
                 if ((atual || 0) === desejado) return;
                 if (atual) remInst(k);
                 if (desejado) addInst(k, x, y, z, desejado);
@@ -2529,11 +2947,11 @@
 
             // ----- Plantas por chunk -----
             const TAB_PLANTAS = [
-                [[0, 0.26], [10, 0.10], [2, 0.06], [3, 0.012]],   // carvalhos (10 = capim alto)
-                [[2, 0.16], [0, 0.08], [3, 0.02]],                // pinhal
-                [[1, 0.22], [4, 0.07]],                           // terra morta
-                [[0, 0.20], [10, 0.12], [3, 0.03]],               // pântano
-                [[0, 0.28], [10, 0.08], [2, 0.05]]                // bétulas
+                [[0, 0.30], [10, 0.08], [2, 0.05], [3, 0.008], [8, 0.015], [9, 0.015], [10, 0.015]],   // carvalhos
+                [[2, 0.18], [0, 0.07], [3, 0.015], [10, 0.02]],                // pinhal
+                [[1, 0.24], [4, 0.06], [8, 0.01]],                           // terra morta
+                [[0, 0.22], [10, 0.10], [3, 0.02], [8, 0.02], [9, 0.02]],               // pântano
+                [[0, 0.30], [10, 0.07], [2, 0.04], [10, 0.015]]                // bétulas
             ];
             function construirChunk(c) {
                 c.renderizado = true;
@@ -2572,8 +2990,7 @@
                         const tab = TAB_PLANTAS[b];
                         for (let i = 0; i < tab.length; i++) { acc += tab[i][1]; if (r < acc) { tp = tab[i][0]; break; } }
                         if (tp >= 0) {
-                            const alto = tp === 10; if (alto) tp = 0;
-                            c.plantas.push(criarPlantaVisual(x, h, z, tp, alto));
+                            c.plantas.push(criarPlantaVisual(x, h, z, tp, false));
                         }
                     }
                 }
@@ -2662,6 +3079,7 @@
             // Chão escuro (fundo do mundo)
             const chao = new THREE.Mesh(new THREE.PlaneGeometry(1200, 1200), new THREE.MeshLambertMaterial({ color: 0x14110d }));
             chao.rotation.x = -Math.PI / 2;
+            chao.receiveShadow = false;
             scene.add(chao);
 
             // ---------- Sombra blob ----------
@@ -2851,6 +3269,7 @@
             document.body.appendChild(balloonEl);
             const MAPA_EMOTE_ICONE = { wave: '👋', kiss: '😘', dance: '💃', cheer: '🙌' };
             function dispararEmote(tipo) {
+                if (dormindo) return;
                 emoteAtivo = tipo;
                 emoteTimer = 3.5;
                 balloonEl.innerText = MAPA_EMOTE_ICONE[tipo] || '✨';
@@ -2941,7 +3360,7 @@
 
             // ---------- Barra de acesso (9 quadrados, começa vazia) + inventário ----------
             // itens: blocos (0..NTIPOS-1) seguidos de plantas (NTIPOS..)
-            const ITENS = TIPOS.map(t => BLOCOS[t]).concat([0, 3].map(tp => ({
+            const ITENS = TIPOS.map(t => BLOCOS[t]).concat([0, 3, 8, 9, 10].map(tp => ({
                 nome: PLANTA_NOME[tp], planta: tp, icone: TEX_PLANTAS[tp].image.toDataURL(), cor: PLANTA_COR[tp]
             })));
             [['Semente de Trigo', 'semente'], ['Trigo', 'trigo'], ['Enxada', 'enxada'], ['Graveto', 'graveto']].forEach(([nome, k]) =>
@@ -2958,6 +3377,8 @@
             ITENS.push({ nome: 'Barra de Ouro', tex: TEX_ITENS.ouro, icone: TEX_ITENS.ouro.image.toDataURL(), cor: 0xf0cb4c });
             ITENS.push({ nome: 'Lã', tex: TEX_ITENS.la, icone: TEX_ITENS.la.image.toDataURL(), cor: 0xf2f0ea });
             ITENS.push({ nome: 'Cama', tex: TEX_ITENS.cama, icone: TEX_ITENS.cama.image.toDataURL(), cor: 0xc23a3a });
+            ITENS.push({ nome: 'Porta', tex: TEX_ITENS.porta, icone: TEX_ITENS.porta.image.toDataURL(), cor: 0xa97f4b });
+            ITENS.push({ nome: 'Pão', tex: TEX_ITENS.pao, icone: TEX_ITENS.pao.image.toDataURL(), cor: 0xe8c97a });
             const NITENS = ITENS.length;
             const NSLOTS = 9;
             const barra = new Array(NSLOTS).fill(-1);   // índice em ITENS, ou -1 = vazio
@@ -3376,7 +3797,8 @@
                 msgSistema('Craft: picareta = 3 tábuas + 2 gravetos · pá = 1 tábua + 2 gravetos');
                 msgSistema('Craft: lança = 1 tábua + 2 gravetos (na horizontal) · tocha = 1 carvão + 1 graveto');
                 msgSistema('Craft: barra de ferro/ouro = 1 minério do mesmo tipo');
-                msgSistema('Cama: 3 lã (da ovelha) em cima + 3 tábuas embaixo · use a cama à noite para dormir.');
+                msgSistema('Cama: 3 lã (da ovelha) em cima + 3 tábuas embaixo · ponha no chão e toque nela à noite para dormir.');
+                msgSistema('Porta: 6 tábuas (2 colunas x 3 linhas) · toque na porta para abrir e fechar.');
                 msgSistema('Minérios (carvão/ferro/ouro) só saem com picareta · zumbis só à noite na sobrevivência.');
             }
             function gastarPulo() {
@@ -3407,7 +3829,7 @@
                     for (let iy = minY; iy <= maxY; iy++) {
                         for (let iz = minZ; iz <= maxZ; iz++) {
                             const b = getBloco(ix, iy, iz);
-                            if (b && !ehTochaId(b)) return true;      // a tocha não bloqueia o passo
+                            if (bateBloco(b, ix, iz, x - 0.3, x + 0.3, z - 0.3, z + 0.3)) return true;      // a tocha não bloqueia o passo
                         }
                     }
                 }
@@ -3459,7 +3881,11 @@
                 let tmz = dz !== 0 ? (dz > 0 ? bz + 1 - oz : oz - bz) * tdz : Infinity;
                 let ax = bx, ay = by, az = bz, t = 0, primeiro = true;
                 while (t <= 16) {
-                    const existe = by < 0 ? -1 : getBloco(bx, by, bz);
+                    let existe = by < 0 ? -1 : getBloco(bx, by, bz);
+                    if (existe > 0 && ehPortaId(existe)) {
+                        const pr = portaRect(existe, bx, bz);
+                        if (raioCaixa(ox, oy, oz, dx, dy, dz, pr[0] + 0.5, by, pr[2] + 0.5, pr[1] + 0.5, by + 1, pr[3] + 0.5) < 0) existe = 0;
+                    }
                     if (!existe && by >= 0 && plantaTipo.size) {
                         const tp = plantaTipo.get(numKey(bx, by, bz));
                         if (tp !== undefined) {
@@ -3594,6 +4020,8 @@
             const quebra = { alvoKey: -1, prog: 0, delay: 0, tick: 0, id: 0 };
             const quebraPtr = { on: false, fonte: '', nx: 0, ny: 0 };
             let ultimoPlace = 0;
+            let colocarRep = false;                       // true quando o toque está repetindo (segurando o botão)
+            let dormindo = false, sonoT = 0, camaAtual = null;
 
             function virarPara(x, z) { alvoRot = Math.atan2(x - posX, z - posZ); }
 
@@ -3604,7 +4032,7 @@
             }
             // enxada: um toque na grama (ou terra) vira terra arada
             function usarEnxada(a) {
-                if (a.planta >= 5) return false;
+                if (a.planta >= 5 && a.planta <= 7) return false;   // não usa enxada em plantação
                 const bx = a.x, bz = a.z;
                 let by = a.y;
                 if (a.planta >= 0) by -= 1;                       // mirou no capim: usa o bloco de baixo
@@ -3639,14 +4067,14 @@
                 const px = a.px, py = a.py, pz = a.pz;
                 if (py < 0 || py >= YMAX - 2) return false;
                 if (getId(px, py, pz) !== 0) return false;
-                if (ehTochaId(a.id)) return false;
+                if (ehEspecialId(a.id)) return false;
                 let id = ID_TOCHA;
                 const nx = px - a.x, ny = py - a.y, nz = pz - a.z;
                 if (a.planta < 0 && ny === 0 && Math.abs(nx) + Math.abs(nz) === 1) {
                     id = nx === -1 ? ID_TOCHA + 1 : nx === 1 ? ID_TOCHA + 2 : nz === -1 ? ID_TOCHA + 3 : ID_TOCHA + 4;
                 } else {
                     const b = getBloco(px, py - 1, pz);
-                    if (!b || ehTochaId(b)) return false;           // em pé: precisa de bloco embaixo
+                    if (!b || ehEspecialId(b)) return false;           // em pé: precisa de bloco embaixo
                 }
                 tochaNova = true;                                   // dispara a animação de acender
                 aplicarEdicao(px, py, pz, id);
@@ -3686,7 +4114,7 @@
             }
 
             // usar a cama: à noite, dorme e amanhece (também limpa a chuva)
-            function dormir() {
+            function dormirAntigo() {
                 if (DIA_V >= 0.35) { msgSistema('Você só consegue dormir à noite.'); return false; }
                 definirTempo(0.02);
                 if (clima === 'chuva') definirClima('limpo');
@@ -3694,16 +4122,174 @@
                 tom(220, 330, 0.9, 0.08, 'sine');
                 return true;
             }
+            // ----- porta e cama -----
+            const sonoFx = document.getElementById('sono-fx');
+            sonoFx.addEventListener('pointerdown', e => { e.preventDefault(); if (dormindo && sonoT > 1) acordar(false); });
+            function frenteIdx() {           // para onde o jogador olha (0..3 = DIRS4)
+                const fx = -Math.sin(camRotX), fz = -Math.cos(camRotX);
+                return Math.abs(fx) > Math.abs(fz) ? (fx > 0 ? 1 : 3) : (fz > 0 ? 2 : 0);
+            }
+            function jogadorEm(cx, cz, y0, y1) { return Math.abs(cx - posX) < 0.8 && Math.abs(cz - posZ) < 0.8 && posY + ALTURA_JOG > y0 && posY < y1; }
+            function celulaLivre(x, y, z) {
+                if (y < 0 || y >= YMAX - 1 || getId(x, y, z) !== 0) return false;
+                const tp = plantaTipo.get(numKey(x, y, z));
+                return tp === undefined || tp < 5;       // capim e flores podem ser substituídos; plantação não
+            }
+            function temApoio(x, y, z) { const b = getBloco(x, y - 1, z); return ehSolidoBloco(b) && !ehEspecialId(b); }
+            function gravarEdicao(x, y, z, id) {
+                aplicarEdicao(x, y, z, id);
+                pend.delete(numKey(x, y, z));
+                bufferEdicoes.push([x, y, z, id]);
+            }
+            function sfxPorta(abrir) {
+                rajada(0.22, 'lowpass', 520, 0.8, 0.28);
+                tom(abrir ? 170 : 150, abrir ? 250 : 85, 0.2, 0.13, 'triangle');
+            }
+            function colocarPorta(a) {
+                const x = a.px, y = a.py, z = a.pz;
+                if (y < 1 || y >= YMAX - 3) return false;
+                if (!celulaLivre(x, y, z) || !celulaLivre(x, y + 1, z) || !temApoio(x, y, z)) return false;
+                if (jogadorEm(x, z, y, y + 2)) return false;
+                const o = (frenteIdx() + 2) % 4;          // a porta fica na aresta do lado de quem está colocando
+                // porta ao lado de outra (mesma direção) vira porta dupla: as dobradiças ficam nas pontas e uma é espelhada da outra
+                const n = DIRS4[o], ax = -n[1], az = n[0];
+                const vizinha = (cx, cz) => { const id = getId(cx, y, cz); return (ehPortaId(id) && portaBaixo(id) && (portaIdx(id) >> 1) === o) ? id : 0; };
+                const maisId = vizinha(x + ax, z + az), menosId = vizinha(x - ax, z - az);
+                let esp = false;
+                if (maisId && !menosId) esp = true;                 // vizinha no lado +a: minha dobradiça vai para o lado -a
+                else if (menosId && !maisId) esp = false;           // vizinha no lado -a: minha dobradiça fica no lado +a
+                const flip = (cx, cz, id, querEsp) => {             // ajusta a vizinha para a dobradiça ficar na ponta de fora
+                    if (portaEsp(id) === querEsp || (portaOff(id) & 1)) return;      // já certa ou está aberta
+                    const alvoId = querEsp ? id + 32 : id - 32;
+                    if (ehPortaId(getId(cx + (cx - x), y, cz + (cz - z)))) return;   // já faz par com outra porta
+                    gravarEdicao(cx, y, cz, alvoId);
+                    gravarEdicao(cx, y + 1, cz, alvoId + 8);
+                };
+                if (maisId && !menosId) flip(x + ax, z + az, maisId, false);
+                if (menosId && !maisId) flip(x - ax, z - az, menosId, true);
+                const base = ID_PORTA + (esp ? 32 : 0);
+                gravarEdicao(x, y, z, base + o * 2);
+                gravarEdicao(x, y + 1, z, base + 8 + o * 2);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.tabua);
+                virarPara(x, z);
+                return true;
+            }
+            function alternarPorta(x, y, z) {
+                const id = getId(x, y, z);
+                if (!ehPortaId(id)) return false;
+                const by = portaBaixo(id) ? y : y - 1;
+                const idB = getId(x, by, z), idT = getId(x, by + 1, z);
+                if (!ehPortaId(idB)) return false;
+                const troca = (i) => i + ((portaOff(i) & 1) ? -1 : 1);       // alterna aberta/fechada
+                const novoB = troca(idB);
+                const fechando = (portaOff(novoB) & 1) === 0;
+                if (fechando && jogadorEm(x, z, by, by + 2)) return false;   // não fecha em cima de você
+                gravarEdicao(x, by, z, novoB);
+                if (ehPortaId(idT)) gravarEdicao(x, by + 1, z, troca(idT));
+                sfxPorta(!fechando);
+                meuChar.golpe = 0.25;
+                virarPara(x, z);
+                return true;
+            }
+            function colocarCama(a) {
+                const x = a.px, y = a.py, z = a.pz;
+                if (y < 1 || y >= YMAX - 2) return false;
+                const o = frenteIdx(), d = DIRS4[o];        // cabeceira para onde você olha
+                const hx = x + d[0], hz = z + d[1];
+                if (!celulaLivre(x, y, z) || !celulaLivre(hx, y, hz)) return false;
+                if (!temApoio(x, y, z) || !temApoio(hx, y, hz)) return false;
+                if (jogadorEm(x, z, y, y + 1) || jogadorEm(hx, hz, y, y + 1)) return false;
+                gravarEdicao(x, y, z, ID_CAMA + o);
+                gravarEdicao(hx, y, hz, ID_CAMA + 4 + o);
+                gastarDaMao();
+                meuChar.golpe = 0.25;
+                sfxColocar(ID.tabua);
+                virarPara(x, z);
+                return true;
+            }
+            function quebrarEspecial(x, y, z, id) {
+                const porta = ehPortaId(id);
+                let cels;
+                if (porta) { const by = portaBaixo(id) ? y : y - 1; cels = [[x, by, z], [x, by + 1, z]]; }
+                else {
+                    const d = DIRS4[(id - ID_CAMA) & 3];
+                    const fx = id < ID_CAMA + 4 ? x : x - d[0], fz = id < ID_CAMA + 4 ? z : z - d[1];
+                    cels = [[fx, y, fz], [fx + d[0], y, fz + d[1]]];
+                }
+                for (const c of cels) {
+                    const cid = getId(c[0], c[1], c[2]);
+                    if (porta ? ehPortaId(cid) : ehCamaId(cid)) { gravarEdicao(c[0], c[1], c[2], 0); explodirBloco(c[0], c[1], c[2], ID.tabua); }
+                }
+                if (modoJogo === 'sobrevivencia') soltarItem(x, y, z, porta ? ITEM_PORTA : ITEM_CAMA, 0.5);
+                sfxQuebrar(ID.tabua);
+            }
+            function desfazerSobre(x, y, z) {            // porta/cama que ficou sem apoio cai
+                const c = getId(x, y + 1, z);
+                if (ehPortaId(c) && portaBaixo(c)) quebrarEspecial(x, y + 1, z, c);
+                else if (ehCamaId(c)) quebrarEspecial(x, y + 1, z, c);
+            }
+            function dormirNaCama(x, y, z, id) {
+                if (dormindo) return false;
+                if (DIA_V >= 0.35) { msgSistema('Você só consegue dormir à noite.'); return false; }
+                for (const m of mobs) if (m.hostil && Math.hypot(m.x - posX, m.z - posZ) < 10) { msgSistema('Você não pode dormir com zumbis por perto.'); return false; }
+                const o = (id - ID_CAMA) & 3, d = DIRS4[o];
+                const fx = id >= ID_CAMA + 4 ? x - d[0] : x, fz = id >= ID_CAMA + 4 ? z - d[1] : z;
+                dormindo = true; sonoT = 0;
+                camaAtual = { fx, fy: y, fz, o };
+                posX = fx + d[0] * 0.5; posZ = fz + d[1] * 0.5; posY = y + 0.3;
+                velX = velY = velZ = 0; velAnim = 0;
+                emoteAtivo = ''; emoteTimer = 0; balloonEl.style.display = 'none';
+                if (invAberto()) alternarInv(false);
+                resetarQuebra();
+                meuChar.blob.visible = false;
+                sonoFx.classList.add('on');
+                tom(220, 330, 0.9, 0.08, 'sine');
+                return true;
+            }
+            function acordar(manha) {
+                if (!dormindo) return;
+                dormindo = false;
+                sonoFx.classList.remove('on');
+                const c = camaAtual; camaAtual = null;
+                meuChar.mesh.rotation.x = 0;
+                meuChar.blob.visible = true;
+                if (c) {
+                    const d = DIRS4[c.o], l = [-d[1], d[0]];
+                    const hx = c.fx + d[0], hz = c.fz + d[1];
+                    const cand = [[c.fx + l[0], c.fz + l[1]], [c.fx - l[0], c.fz - l[1]], [hx + l[0], hz + l[1]], [hx - l[0], hz - l[1]], [c.fx - d[0], c.fz - d[1]], [hx + d[0], hz + d[1]]];
+                    let ok = false;
+                    for (const p of cand) {
+                        if (!ehSolidoBloco(getBloco(p[0], c.fy, p[1])) && !ehSolidoBloco(getBloco(p[0], c.fy + 1, p[1])) && ehSolidoBloco(getBloco(p[0], c.fy - 1, p[1]))) {
+                            posX = p[0]; posZ = p[1]; posY = c.fy; ok = true; break;
+                        }
+                    }
+                    if (!ok) { posX = c.fx; posZ = c.fz; posY = c.fy + 1; }
+                }
+                velX = velY = velZ = 0;
+                if (manha) {
+                    if (clima === 'chuva') definirClima('limpo');
+                    msgSistema('Bom dia! Você acordou.');
+                }
+            }
+
             function colocarEm(nx, ny) {
+                if (dormindo) return;
                 const agora = performance.now();
                 if (agora - ultimoPlace < 130) return;
                 const a = lancarRaio(nx, ny, alvoPlace);
                 if (!a) return;
+                if (a.planta < 0 && !a.chao) {                 // tocar numa porta abre/fecha · tocar numa cama dorme
+                    if (ehPortaId(a.id)) { if (!colocarRep) { alternarPorta(a.x, a.y, a.z); ultimoPlace = agora + 250; } return; }
+                    if (ehCamaId(a.id)) { if (!colocarRep) { dormirNaCama(a.x, a.y, a.z, a.id); ultimoPlace = agora + 600; } return; }
+                }
                 const ti0 = barra[slotSel];
                 if (ti0 >= 0 && (modoJogo !== 'sobrevivencia' || barraQtd[slotSel] > 0)) {
                     if (ti0 === ITEM_ENXADA) { if (usarEnxada(a)) ultimoPlace = agora; return; }
                     if (ti0 === ITEM_TOCHA) { if (colocarTocha(a)) ultimoPlace = agora; return; }
-                    if (ti0 === ITEM_CAMA) { if (dormir()) ultimoPlace = agora; else ultimoPlace = agora + 600; return; }
+                    if (ti0 === ITEM_CAMA) { if (colocarCama(a)) ultimoPlace = agora; return; }
+                    if (ti0 === ITEM_PORTA) { if (colocarPorta(a)) ultimoPlace = agora; return; }
                     if (ti0 === ITEM_SEMENTE) { if (plantarSemente(a)) ultimoPlace = agora; return; }
                     if (ti0 === ITEM_TRIGO || ti0 === ITEM_GRAVETO || ti0 === ITEM_CARNE || ti0 === ITEM_ESPADA
                         || ti0 === ITEM_PICARETA || ti0 === ITEM_PA || ti0 === ITEM_LANCA || ti0 === ITEM_CARVAO
@@ -3748,7 +4334,8 @@
             function colocarCentro() { aimPadrao(_aim); colocarEm(_aim[0], _aim[1]); }
 
             function quebrarBloco(a) {
-                if (a.planta >= 5) { colherCultura(a); return; }
+                if (a.planta >= 5 && a.planta <= 7) { colherCultura(a); return; }   // só trigo é colhido
+                if (a.planta < 0 && (ehPortaId(a.id) || ehCamaId(a.id))) { quebrarEspecial(a.x, a.y, a.z, a.id); return; }
                 const id = a.id;
                 let drop = -1;
                 if (modoJogo === 'sobrevivencia') {
@@ -3778,7 +4365,7 @@
                     }
                 }
                 aplicarEdicao(a.x, a.y, a.z, 0);
-                if (a.planta < 0) soltarTochasDe(a.x, a.y, a.z);      // tochas apoiadas neste bloco caem junto
+                if (a.planta < 0) { soltarTochasDe(a.x, a.y, a.z); desfazerSobre(a.x, a.y, a.z); }      // tochas apoiadas neste bloco caem junto
                 if (drop >= 0) soltarItem(a.x, a.y, a.z, drop, 0.5);
                 pend.delete(numKey(a.x, a.y, a.z));
                 bufferEdicoes.push([a.x, a.y, a.z, 0]);
@@ -3831,7 +4418,7 @@
                     if (bp.setPointerCapture) { try { bp.setPointerCapture(e.pointerId); } catch (_) { } }
                     bp.classList.add('press');
                     colocarCentro();
-                    timer = setTimeout(() => { rep = setInterval(colocarCentro, 190); }, 320);
+                    timer = setTimeout(() => { rep = setInterval(() => { colocarRep = true; colocarCentro(); colocarRep = false; }, 190); }, 320);
                 });
                 ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => bp.addEventListener(ev, parar));
                 bp.addEventListener('contextmenu', e => e.preventDefault());
@@ -4044,7 +4631,22 @@
             // ============================================================
             const remotos = {};
             const tagsNomes = {};
-            let ultimoSeq = -1;
+            let ultimoSeq = -1, ultimoMev = -1;
+            let golpeCont = 0, golpePrev = 0, dormEnv = null, mortesCont = 0;
+
+            // campos extras enviados ao servidor junto com a posição (animações, mobs, mortes)
+            function mobsUpdEnvio() {
+                const out = [];
+                for (const m of mobs) if (m.id > 0 && m.meu && !m.morto) out.push([m.id, +m.x.toFixed(2), +m.y.toFixed(2), +m.z.toFixed(2), +m.rot.toFixed(2), m.estado, +Math.max(0, m.surgindo).toFixed(2)]);
+                return out.slice(0, 60);
+            }
+            function extraEnvio(mn, md) {
+                return {
+                    pit: +(meuChar.pit || 0).toFixed(2), gp: golpeCont, com: meuChar.comendo ? 1 : 0, qb: meuChar.quebrando ? 1 : 0,
+                    dorm: dormEnv, surv: modoJogo === 'sobrevivencia' ? 1 : 0, mortes: mortesCont,
+                    mobs_novos: mn, mobs_upd: mobsUpdEnvio(), mobs_dano: md
+                };
+            }
             let sincronizando = false, falhas = 0, proximaTentativa = 0, onlineAtual = 1;
 
             function keysEnvio() {
@@ -4069,10 +4671,10 @@
                         for (const k in ret.blocos) {
                             const [bx, by, bz] = k.split(',').map(Number);
                             const cod = ret.blocos[k];
-                            if (cod >= 0 && cod <= ID_TOCHA + 4) enfileirar(bx, by, bz, cod);
+                            if (cod >= 0 && cod <= ID_MAXBLOCO) enfileirar(bx, by, bz, cod);
                         }
                     } else if (ret.eventos) {
-                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= ID_TOCHA + 4) enfileirar(ev.x, ev.y, ev.z, ev.b); });
+                        ret.eventos.forEach(ev => { if (ev.b >= 0 && ev.b <= ID_MAXBLOCO) enfileirar(ev.x, ev.y, ev.z, ev.b); });
                     }
                     if (ret.seq !== undefined) ultimoSeq = ret.seq;
 
@@ -4102,11 +4704,21 @@
                             document.getElementById('labels-container').appendChild(tag);
                             tagsNomes[j.nome] = tag;
                         } else {
-                            rem.snaps.push(snap);
+                            const ult = rem.snaps[rem.snaps.length - 1];
+                            if (ult && Math.hypot(snap.x - ult.x, snap.z - ult.z) > 10) rem.snaps = [snap];   // teleporte/respawn: não desliza pelo mapa
+                            else rem.snaps.push(snap);
                             if (rem.snaps.length > 12) rem.snaps.shift();
                         }
                         rem.emoteAtual = j.emote;
                         rem.itemMao = typeof j.item === 'number' ? j.item : -1;
+                        rem.pit = typeof j.pit === 'number' ? j.pit : 0;
+                        rem.comendo = !!j.com;
+                        rem.quebrando = !!j.qb;
+                        rem.dorm = Array.isArray(j.dorm) ? j.dorm : null;
+                        if (typeof j.gp === 'number') {
+                            if (rem.gpUlt !== undefined && j.gp !== rem.gpUlt) rem.golpe = 0.25;
+                            rem.gpUlt = j.gp;
+                        }
                     });
                     for (const k in remotos) {
                         if (!presentes.has(k)) {
@@ -4121,6 +4733,16 @@
                 // ---------- itens no chão ----------
                 if (ret.drops) { sincronizarDrops(ret.drops); if (ret.dseq !== undefined) dropsDseq = ret.dseq; }
                 if (ret.ganhos) ret.ganhos.forEach(receberGanho);
+
+                // ---------- mobs (vindos do servidor) ----------
+                if (ret.mseq !== undefined) {
+                    if (ultimoMev < 0 || ret.mseq < ultimoMev) ultimoMev = ret.mseq;        // 1ª resposta ou servidor reiniciou
+                    else {
+                        if (ret.mev) ret.mev.forEach(ev => { if (ev.s > ultimoMev) aplicarEventoMob(ev); });
+                        ultimoMev = Math.max(ultimoMev, ret.mseq);
+                    }
+                }
+                if (ret.mobs) sincronizarMobs(ret.mobs);
 
                 // ---------- chat ----------
                 if (ret.cseq !== undefined) {
@@ -4160,11 +4782,13 @@
                 const lista = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chats = chatPend.splice(0, 3);
                 const dn = dropsNovosPend.splice(0, 8), pg = pegarPend.splice(0, 16);
+                const mn = mobsNovosPend.splice(0, 4), md = mobsDanoPend.splice(0, 8);
                 const msg = {
                     dados_jogador: {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg, item: barra[slotSel]
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg, item: barra[slotSel],
+                        ...extraEnvio(mn, md)
                     }
                 };
                 if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
@@ -4174,6 +4798,8 @@
                     if (chats.length) chatPend.unshift(...chats);
                     if (dn.length) dropsNovosPend.unshift(...dn);
                     if (pg.length) pegarPend.unshift(...pg);
+                    if (mn.length) mobsNovosPend.unshift(...mn);
+                    if (md.length) mobsDanoPend.unshift(...md);
                 }
             }
             conectarWS();
@@ -4187,16 +4813,18 @@
                 const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chatsEnv = chatPend.splice(0, 3);
                 const dnEnv = dropsNovosPend.splice(0, 8), pgEnv = pegarPend.splice(0, 16);
+                const mnEnv = mobsNovosPend.splice(0, 4), mdEnv = mobsDanoPend.splice(0, 8);
                 try {
                     const dados = {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv, item: barra[slotSel]
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv, item: barra[slotSel],
+                        ...extraEnvio(mnEnv, mdEnv)
                     };
                     const res = await fetch('/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat, desdeDrops: dropsDseq })
+                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat, desdeDrops: dropsDseq, desdeMev: ultimoMev })
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const ret = await res.json();
@@ -4206,6 +4834,8 @@
                     if (chatsEnv.length) chatPend.unshift(...chatsEnv);
                     if (dnEnv.length) dropsNovosPend.unshift(...dnEnv);
                     if (pgEnv.length) pegarPend.unshift(...pgEnv);
+                    if (mnEnv.length) mobsNovosPend.unshift(...mnEnv);
+                    if (mdEnv.length) mobsDanoPend.unshift(...mdEnv);
                     if (bufferEdicoes.length > 2000) bufferEdicoes.splice(0, bufferEdicoes.length - 2000);
                     falhas++;
                     proximaTentativa = performance.now() + Math.min(5000, 200 * Math.pow(2, falhas));
@@ -4282,7 +4912,7 @@
                 sm(p.armR.rotation, 'x', aRx); sm(p.armR.rotation, 'y', aRy); sm(p.armR.rotation, 'z', aRz);
                 sm(p.armL.rotation, 'x', aLx); sm(p.armL.rotation, 'y', aLy); sm(p.armL.rotation, 'z', aLz);
                 sm(p.legR.rotation, 'x', lRx); sm(p.legL.rotation, 'x', lLx);
-                sm(p.head.rotation, 'x', hx);
+                sm(p.head.rotation, 'x', hx + (p.pit || 0));
                 p.mesh.rotation.y += corpoYaw;
                 p.mesh.position.y += bob;
             }
@@ -4506,6 +5136,10 @@
             };
             const mobs = [];
             let tSpawn = 0, tSpawnZ = 4;
+            const MOB_TIPOS = ['ovelha', 'porco', 'zumbi'];     // índice usado no protocolo com o servidor
+            const mobsPorId = new Map();                         // id do servidor -> mob
+            const mobsNovosPend = [];                            // [tipo,x,y,z] pedidos de criação
+            const mobsDanoPend = [];                             // [id,dano,dirX,dirZ,fogo] danos que causei
 
             // ---------- Modelo (caixas com textura pixelada) ----------
             const mobMat = (hex, q) => new THREE.MeshLambertMaterial({
@@ -4627,7 +5261,7 @@
                 const y0 = Math.floor(y), y1 = Math.floor(y + MOB.ALTURA - 1e-4);
                 for (let ix = x0; ix <= x1; ix++) for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) {
                     const b = getBloco(ix, iy, iz);
-                    if (b && !ehTochaId(b)) return true;
+                    if (bateBloco(b, ix, iz, x - r, x + r, z - r, z + r)) return true;
                 }
                 return false;
             }
@@ -4666,7 +5300,8 @@
             }
 
             // ---------- Spawn / despawn ----------
-            function criarMob(tipo, x, y, z) {
+            // id > 0: mob do servidor (o dono simula, os outros interpolam) · id <= 0: mob local (offline)
+            function criarMob(tipo, x, y, z, id) {
                 const zumbi = tipo === 'zumbi';
                 const mod = zumbi ? criarZumbiModelo() : criarMobModelo(tipo);
                 const m = {
@@ -4675,23 +5310,30 @@
                     vel: MOB.VEL * (0.85 + Math.random() * 0.3), anim: Math.random() * 6, cabRot: 0,
                     hp: zumbi ? 20 : 4, hpMax: zumbi ? 20 : 4, hurt: 0, morto: false, mats: mod.mats,
                     hostil: zumbi, surgindo: zumbi ? 1.6 : 0, bracos: mod.bracos || null,
-                    danoEspera: 0, queimando: 0,
+                    danoEspera: 0, queimando: 0, id: id || 0, meu: !(id > 0), dono: '', snaps: null, fogoAcc: 0,
                     mesh: mod.grupo, pernas: mod.pernas, cabeca: mod.cabeca, blob: criarBlob()
                 };
                 m.alvoRot = m.rot;
                 m.mesh.position.set(x, y, z);
                 scene.add(m.mesh);
                 mobs.push(m);
+                return m;
+            }
+            // pede ao servidor para criar o mob (ele aparece para todos); sem servidor, cria só aqui
+            function pedirMob(tipo, x, y, z, local) {
+                if (!local && conectado()) mobsNovosPend.push([MOB_TIPOS.indexOf(tipo), +x.toFixed(2), +y.toFixed(2), +z.toFixed(2)]);
+                else criarMob(tipo, x, y, z, 0);
             }
             function removerMob(i) {
                 const m = mobs[i];
+                if (m.id > 0) mobsPorId.delete(m.id);
                 scene.remove(m.mesh); scene.remove(m.blob);
                 descartarPersonagem(m);
                 mobs.splice(i, 1);
             }
             // Tenta criar UM grupo (1 a 2 mobs da mesma espécie). Retorna true se criou.
-            function tentarSpawn() {
-                if (mobs.length >= MOB.MAX) return false;
+            function tentarSpawn(local) {
+                if (mobs.length >= MOB.MAX || mobsNovosPend.length) return false;
                 const ang = Math.random() * 6.283;
                 const d = MOB.DIST_MIN + Math.random() * (MOB.DIST_MAX - MOB.DIST_MIN);
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
@@ -4701,11 +5343,11 @@
                 if (y < 0) return false;
                 const tipo = Math.random() < 0.5 ? 'ovelha' : 'porco';
                 const n = Math.min(MOB.GRUPO_MAX, MOB.MAX - mobs.length, Math.random() < 0.45 ? 2 : 1);
-                criarMob(tipo, x, y, z);
+                pedirMob(tipo, x, y, z, local);
                 if (n > 1) {
                     const px = x + (Math.random() < 0.5 ? -2 : 2), pz = z + (Math.random() < 0.5 ? -2 : 2);
                     const py = chunks.has(ckKey(px >> 4, pz >> 4)) ? soloMob(px, pz) : -1;
-                    if (py >= 0) criarMob(tipo, px, py, pz);
+                    if (py >= 0) pedirMob(tipo, px, py, pz, local);
                 }
                 return true;
             }
@@ -4713,17 +5355,17 @@
             // Zumbis: só no modo sobrevivência, à noite, brotam da terra perto do jogador
             function tentarSpawnZumbi() {
                 if (modoJogo !== 'sobrevivencia') return false;
-                if (DIA_V > 0.34) return false;                      // só à noite (ou bem no entardecer)
+                if (dormindo || DIA_V > 0.34) return false;                      // só à noite (ou bem no entardecer)
                 let nZ = 0;
                 for (const m of mobs) if (m.hostil) nZ++;
-                if (nZ >= 8) return false;
+                if (nZ >= 8 || mobsNovosPend.length) return false;
                 const ang = Math.random() * 6.283;
                 const d = 13 + Math.random() * 25;
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
                 if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;
                 const y = soloMob(x, z);
                 if (y < 0) return false;
-                criarMob('zumbi', x, y, z);
+                pedirMob('zumbi', x, y, z);
                 return true;
             }
 
@@ -4757,9 +5399,12 @@
                 }
                 if (m.hostil && DIA_V > 0.72) {             // queima ao amanhecer
                     m.queimando += dt;
-                    m.hp -= dt * 2.2;
+                    if (m.id > 0) {                          // mob do servidor: o dono avisa o dano de fogo
+                        m.fogoAcc += dt * 2.2;
+                        if (m.fogoAcc >= 1) { m.fogoAcc -= 1; mobsDanoPend.push([m.id, 1, 0, 0, 1]); }
+                    } else m.hp -= dt * 2.2;
                     if (Math.random() < dt * 7) explodirBloco(Math.round(m.x), Math.floor(m.y + 1.1), Math.round(m.z), 0, 0x8a8a8a);
-                    if (m.hp <= 0) { matarMob(m); return; }
+                    if (m.id <= 0 && m.hp <= 0) { matarMob(m); return; }
                 }
 
                 // máquina de estados (parado → anda ou come → parado …)
@@ -4778,7 +5423,8 @@
                 // movimento horizontal
                 let v = 0;
                 if (m.hostil) {                                   // zumbi: persegue o jogador
-                    const dx = posX - m.x, dz = posZ - m.z;
+                    const al = alvoZumbi(m);
+                    const dx = al.x - m.x, dz = al.z - m.z;
                     const dd = Math.hypot(dx, dz);
                     if (dd > 0.05) {
                         m.rot = lerpAng(m.rot, Math.atan2(dx, dz), 1 - Math.exp(-7 * dt));
@@ -4789,13 +5435,7 @@
                         m.rot = m.alvoRot = m.rot + Math.PI * (0.6 + Math.random() * 0.8);
                         v = 0;
                     }
-                    // ataque
-                    m.danoEspera -= dt;
-                    if (dd < 1.9 && m.danoEspera <= 0 && Math.abs(m.y - posY) < 2.2) {
-                        machucarJogador(2, dx / (dd || 1), dz / (dd || 1));
-                        m.danoEspera = 1.1;
-                        m.golpe = 0.25;
-                    }
+                    // (o ataque é aplicado por zumbisAtacam(), em cada jogador que estiver perto)
                 } else if (m.estado === 1) {
                     m.rot = lerpAng(m.rot, m.alvoRot, 1 - Math.exp(-5 * dt));
                     v = m.vel;
@@ -4842,6 +5482,118 @@
                 m.cabeca.rotation.x = m.cabRot;
             }
 
+            // zumbi persegue o jogador mais próximo (eu ou outro jogador online)
+            function alvoZumbi(m) {
+                let melhor = { x: posX, z: posZ }, md = Math.hypot(posX - m.x, posZ - m.z);
+                for (const k in remotos) {
+                    const rp = remotos[k].mesh.position;
+                    const d = Math.hypot(rp.x - m.x, rp.z - m.z);
+                    if (d < md) { md = d; melhor = { x: rp.x, z: rp.z }; }
+                }
+                return melhor;
+            }
+            // cada cliente aplica o dano dos zumbis ao PRÓPRIO jogador
+            function zumbisAtacam(dt) {
+                for (const m of mobs) {
+                    if (!m.hostil || m.morto) continue;
+                    if (m.danoEspera > 0) m.danoEspera -= dt;
+                    if (m.surgindo > 0) continue;
+                    const dx = posX - m.x, dz = posZ - m.z, dd = Math.hypot(dx, dz);
+                    if (dd < 1.9 && m.danoEspera <= 0 && Math.abs(m.y - posY) < 2.2) {
+                        machucarJogador(2, dx / (dd || 1), dz / (dd || 1));
+                        m.danoEspera = 1.1;
+                        m.golpe = 0.25;
+                    }
+                }
+            }
+            // mob de outro dono: só interpola a posição recebida do servidor e anima
+            function atualizarMobRemoto(m, dt, tRender) {
+                const s = amostrarRemoto(m, tRender);
+                const ox = m.x, oz = m.z;
+                m.x = s.x; m.y = s.y; m.z = s.z; m.rot = s.r;
+                if (m.hurt > 0) {
+                    m.hurt -= dt;
+                    if (m.hurt <= 0) { m.hurt = 0; m.mesh.scale.set(1, 1, 1); for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x000000); }
+                }
+                const vr = Math.min(6, Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 0.001));
+                let sw;
+                if (m.surgindo > 0) { m.anim += dt * 2.2; sw = Math.sin(m.anim * 3) * 0.3; }
+                else { m.anim += vr * dt * 5.5; sw = Math.sin(m.anim) * Math.min(1, vr / 1.0) * 0.7; }
+                m.pernas[0].rotation.x = sw; m.pernas[3].rotation.x = sw;
+                m.pernas[1].rotation.x = -sw; m.pernas[2].rotation.x = -sw;
+                const alvoCab = m.estado === 2 ? 0.95 + Math.sin(performance.now() / 1000 * 11) * 0.12 : 0;
+                m.cabRot += (alvoCab - m.cabRot) * (1 - Math.exp(-10 * dt));
+                m.cabeca.rotation.x = m.cabRot;
+            }
+
+            // ---------- Servidor -> cliente: lista de mobs, dano e morte ----------
+            function sincronizarMobs(lista) {
+                const agoraMs = performance.now();
+                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id <= 0) removerMob(i);   // mobs locais (offline) saem quando o servidor assume
+                const vistos = new Set();
+                for (const d of lista) {
+                    const id = d[0];
+                    if (!(d[1] >= 0 && d[1] < MOB_TIPOS.length)) continue;
+                    vistos.add(id);
+                    let m = mobsPorId.get(id);
+                    if (!m) {
+                        m = criarMob(MOB_TIPOS[d[1]], d[2], d[3], d[4], id);
+                        m.rot = m.alvoRot = d[5];
+                        m.meu = false;
+                        m.snaps = [{ t: agoraMs, x: d[2], y: d[3], z: d[4], r: d[5] }];
+                        mobsPorId.set(id, m);
+                    }
+                    m.hp = d[7]; m.dono = d[8];
+                    const meu = d[8] === meuNome;
+                    if (meu) {
+                        if (!m.meu) { m.meu = true; m.vy = 0; m.noChao = true; m.t = 0.3; }   // virei o dono: continuo de onde ele estava
+                    } else {
+                        if (m.meu) { m.meu = false; m.snaps = [{ t: agoraMs, x: m.x, y: m.y, z: m.z, r: m.rot }]; }
+                        m.snaps.push({ t: agoraMs, x: d[2], y: d[3], z: d[4], r: d[5] });
+                        if (m.snaps.length > 12) m.snaps.shift();
+                        m.estado = d[6]; m.surgindo = d[9] || 0;
+                    }
+                }
+                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id > 0 && !vistos.has(mobs[i].id)) removerMob(i);
+            }
+            function efeitoDanoMob(m) {
+                m.hurt = 0.22;
+                for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
+                m.mesh.scale.set(1.08, 0.9, 1.08);
+                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
+                if (Math.hypot(m.x - posX, m.z - posZ) < 30) sfxMobDano();
+            }
+            // quem simula o mob reage ao golpe (foge e é empurrado)
+            function reacaoDanoMob(m, dirX, dirZ, atX, atZ) {
+                m.estado = 1; m.t = 0.9 + Math.random() * 0.5;
+                m.alvoRot = Math.atan2(m.x - atX, m.z - atZ);
+                m.vy = Math.max(m.vy, 5.5); m.noChao = false;
+                const emp = 0.35;
+                if (!colideMob(m.x + dirX * emp, m.y, m.z)) m.x += dirX * emp;
+                if (!colideMob(m.x, m.y, m.z + dirZ * emp)) m.z += dirZ * emp;
+            }
+            function aplicarEventoMob(ev) {
+                if (ev.t === 'p') { if (ev.n !== meuNome) msgSistema(ev.n + ' morreu.'); return; }
+                const m = mobsPorId.get(ev.i);
+                if (ev.t === 'd') {
+                    if (!m || ev.por === meuNome) return;            // o meu golpe já mostrou o efeito na hora
+                    efeitoDanoMob(m);
+                    if (m.meu) {
+                        const r = remotos[ev.por];
+                        reacaoDanoMob(m, ev.x, ev.z, r ? r.mesh.position.x : m.x - ev.x, r ? r.mesh.position.z : m.z - ev.z);
+                    }
+                } else if (ev.t === 'm') {
+                    const tipo = MOB_TIPOS[ev.k] || 'ovelha';
+                    explodirBloco(Math.round(ev.x), Math.floor(ev.y + 0.4), Math.round(ev.z), 0, ev.k === 2 ? 0x4e7f3a : 0x8f2f24);
+                    if (Math.hypot(ev.x - posX, ev.z - posZ) < 40) sfxMobMorte(tipo);
+                    if (m) { const i = mobs.indexOf(m); if (i >= 0) removerMob(i); }
+                    if (ev.por === meuNome && modoJogo !== 'sobrevivencia' && ev.k !== 2 && !avisoCarne) {
+                        avisoCarne = true;
+                        msgSistema('Os animais só soltam carne para pegar no modo sobrevivência (/sobrevivencia).');
+                    }
+                }
+            }
+
             function atualizarMobs(dt) {
                 tSpawn -= dt;
                 if (tSpawn <= 0) {
@@ -4853,22 +5605,33 @@
                     tSpawnZ = 2.5 + Math.random() * 3;
                     for (let i = 0; i < 3 && !tentarSpawnZumbi(); i++);
                 }
+                const agoraMs = performance.now(), tRender = agoraMs - ATRASO_INTERP;
                 for (let i = mobs.length - 1; i >= 0; i--) {
                     const m = mobs[i];
-                    if (m.y < -8 || Math.hypot(m.x - posX, m.z - posZ) > MOB.DESPAWN) { removerMob(i); continue; }
-                    atualizarMob(m, dt);
+                    if (m.id > 0) {
+                        if (m.morto) {                                // golpe fatal enviado: espera o servidor confirmar
+                            if (agoraMs - m.mortoT > 2500) { m.morto = false; m.mesh.visible = true; m.blob.visible = true; }
+                            continue;
+                        }
+                        if (m.meu) atualizarMob(m, dt); else atualizarMobRemoto(m, dt, tRender);
+                    } else {
+                        if (m.y < -8 || Math.hypot(m.x - posX, m.z - posZ) > MOB.DESPAWN) { removerMob(i); continue; }
+                        atualizarMob(m, dt);
+                    }
                 }
-                // afasta mobs sobrepostos
+                zumbisAtacam(dt);
+                // afasta mobs sobrepostos (só move quem eu simulo)
                 for (let i = 0; i < mobs.length; i++) for (let j = i + 1; j < mobs.length; j++) {
                     const a = mobs[i], b = mobs[j];
                     const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
                     if (d < 0.9 && d > 1e-4) {
                         const f = (0.9 - d) * 0.5 * Math.min(1, dt * 6) / d;
-                        if (!colideMob(a.x - dx * f, a.y, a.z - dz * f)) { a.x -= dx * f; a.z -= dz * f; }
-                        if (!colideMob(b.x + dx * f, b.y, b.z + dz * f)) { b.x += dx * f; b.z += dz * f; }
+                        if (a.meu && !colideMob(a.x - dx * f, a.y, a.z - dz * f)) { a.x -= dx * f; a.z -= dz * f; }
+                        if (b.meu && !colideMob(b.x + dx * f, b.y, b.z + dz * f)) { b.x += dx * f; b.z += dz * f; }
                     }
                 }
                 for (const m of mobs) {
+                    if (m.morto) continue;
                     const desc = m.surgindo > 0 ? 1.9 * (1 - clamp(1 - m.surgindo / 1.6, 0, 1)) : 0;
                     m.mesh.position.set(m.x, m.y - desc, m.z);
                     m.mesh.rotation.y = m.rot;
@@ -4879,7 +5642,7 @@
                     atualizarBlob(m, m.x, m.y, m.z);
                 }
             }
-            for (let i = 0; i < 4; i++) tentarSpawn();   // população inicial
+            for (let i = 0; i < 4; i++) tentarSpawn(true);   // população inicial (local; com servidor, os mobs vêm dele)
 
             // ============================================================
             // GRILOS — no máximo 2 no mapa: saltam pela grama e fazem cri-cri
@@ -4890,7 +5653,7 @@
             const GR = { geo: {}, mat: {} };
             const grGeo = (w, h, l) => GR.geo[w + ',' + h + ',' + l] || (GR.geo[w + ',' + h + ',' + l] = new THREE.BoxGeometry(w, h, l));
             const grMat = (hex) => GR.mat[hex] || (GR.mat[hex] = new THREE.MeshLambertMaterial({ color: hex }));
-            const solidoG = (x, y, z) => { const b = getBloco(x, y, z); return b && !ehTochaId(b); };
+            const solidoG = (x, y, z) => { const b = getBloco(x, y, z); return ehSolidoBloco(b); };
 
             function criarGrilo(x, y, z) {
                 const g = new THREE.Group();
@@ -5373,6 +6136,7 @@
             let danoFlashT = 0;
             function machucarJogador(dano, dirX, dirZ) {
                 if (modoJogo !== 'sobrevivencia') return;
+                if (dormindo) acordar(false);
                 vida = Math.max(0, vida - dano);
                 if (danoFlashEl) {
                     danoFlashEl.style.opacity = '0.95';
@@ -5382,6 +6146,7 @@
                 tom(190, 80, 0.24, 0.22, 'sawtooth');
                 if (dirX !== undefined) { velX += dirX * 5.5; velZ += dirZ * 5.5; }
                 if (vida <= 0) {
+                    mortesCont++;
                     posX = 0; posZ = 0; posY = alturaAt(0, 0);
                     while (colide(posX, posY, posZ) && posY < 60) posY += 1;
                     velX = velY = velZ = 0;
@@ -5392,18 +6157,17 @@
 
             function machucarMob(m, dano, dirX, dirZ) {
                 if (m.morto) return;
+                efeitoDanoMob(m);
+                if (m.id > 0) {
+                    // mob do servidor: o servidor tira a vida, decide a morte e solta o drop para todos
+                    mobsDanoPend.push([m.id, dano, +dirX.toFixed(2), +dirZ.toFixed(2)]);
+                    m.hp -= dano;
+                    if (m.hp <= 0) { m.morto = true; m.mortoT = performance.now(); m.mesh.visible = false; m.blob.visible = false; return; }
+                    if (m.meu) reacaoDanoMob(m, dirX, dirZ, posX, posZ);
+                    return;
+                }
                 m.hp -= dano;
-                m.hurt = 0.22;
-                for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
-                m.mesh.scale.set(1.08, 0.9, 1.08);
-                m.estado = 1; m.t = 0.9 + Math.random() * 0.5;
-                m.alvoRot = Math.atan2(m.x - posX, m.z - posZ);       // corre para longe
-                m.vy = Math.max(m.vy, 5.5); m.noChao = false;
-                const emp = 0.35;
-                if (!colideMob(m.x + dirX * emp, m.y, m.z)) m.x += dirX * emp;
-                if (!colideMob(m.x, m.y, m.z + dirZ * emp)) m.z += dirZ * emp;
-                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
-                sfxMobDano();
+                reacaoDanoMob(m, dirX, dirZ, posX, posZ);
                 if (m.hp <= 0) matarMob(m);
             }
 
@@ -5463,6 +6227,8 @@
                 const g = new THREE.Group();
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, MAT[TIPOS[item]]); m.scale.setScalar(0.32); }
+                else if (item === ITEM_CAMA) { m = modeloCama(false); m.scale.setScalar(0.22); }
+                else if (item === ITEM_PORTA) { m = new THREE.Mesh(PORTA_ITEM_GEO, MAT.porta); m.scale.setScalar(0.45); }
                 else { m = new THREE.Mesh(GEO_CRUZ, matItem[item]); m.scale.setScalar(0.5); m.position.y = -0.25; }
                 g.add(m);
                 scene.add(g);
@@ -5543,7 +6309,8 @@
             function matsParaMao(item) {                 // materiais da mão: sempre desenhados por cima
                 let r = matsMaoCache.get(item);
                 if (r) return r;
-                const base = item < NTIPOS ? MAT[TIPOS[item]] : matItem[item];
+                if (item === ITEM_CAMA) return true;           // a cama cria os próprios materiais (sempre por cima)
+                const base = item < NTIPOS ? MAT[TIPOS[item]] : item === ITEM_PORTA ? MAT.porta : matItem[item];
                 r = Array.isArray(base) ? base.map(clonarSemProfundidade) : clonarSemProfundidade(base);
                 matsMaoCache.set(item, r);
                 return r;
@@ -5551,6 +6318,8 @@
             function criarMeshItem(item, esc, mats) {
                 let m;
                 if (item < NTIPOS) { m = new THREE.Mesh(GEOS.bloco, mats || MAT[TIPOS[item]]); m.scale.setScalar(esc); }
+                else if (item === ITEM_CAMA) { m = modeloCama(!!mats); m.scale.setScalar(esc * 0.7); }
+                else if (item === ITEM_PORTA) { m = new THREE.Mesh(PORTA_ITEM_GEO, mats || MAT.porta); m.scale.setScalar(esc * 1.5); }
                 else {
                     m = new THREE.Mesh(GEO_CRUZ, mats || matItem[item]);
                     m.scale.setScalar(esc * 1.55);
@@ -5580,22 +6349,22 @@
             function definirItemNoBraco(p, item) {       // 3ª pessoa e outros jogadores
                 if (p.itemAtual === item) return;
                 p.itemAtual = item;
-                if (p.itemMesh) { p.armR.remove(p.itemMesh); p.itemMesh = null; }
+                if (p.itemMesh) { p.armL.remove(p.itemMesh); p.itemMesh = null; }
                 const ehE = item === ITEM_ENXADA, ehS = item === ITEM_ESPADA, ehP = item === ITEM_PICARETA;
                 const ehPa = item === ITEM_PA, ehL = item === ITEM_LANCA, ehT = item === ITEM_TOCHA;
-                if (p.armR.children[0]) p.armR.children[0].visible = true;     // ferramenta fica na mão, sem esconder o braço
-                if (ehE) { const g = modeloEnxada(false); segurarFerramenta(g, 'enxada', false); p.armR.add(g); p.itemMesh = g; return; }
-                if (ehS) { const g = modeloEspada(false); segurarFerramenta(g, 'espada', false); p.armR.add(g); p.itemMesh = g; return; }
-                if (ehP) { const g = modeloPicareta(false); segurarFerramenta(g, 'picareta', false); p.armR.add(g); p.itemMesh = g; return; }
-                if (ehPa) { const g = modeloPa(false); segurarFerramenta(g, 'pa', false); p.armR.add(g); p.itemMesh = g; return; }
-                if (ehL) { const g = modeloLanca(false); segurarFerramenta(g, 'lanca', false); p.armR.add(g); p.itemMesh = g; return; }
-                if (ehT) { const g = modeloTochaMao(false); segurarFerramenta(g, 'tocha', false); p.armR.add(g); p.itemMesh = g; return; }
+                if (p.armL.children[0]) p.armL.children[0].visible = true;     // ferramenta fica na mão, sem esconder o braço
+                if (ehE) { const g = modeloEnxada(false); segurarFerramenta(g, 'enxada', false); p.armL.add(g); p.itemMesh = g; return; }
+                if (ehS) { const g = modeloEspada(false); segurarFerramenta(g, 'espada', false); p.armL.add(g); p.itemMesh = g; return; }
+                if (ehP) { const g = modeloPicareta(false); segurarFerramenta(g, 'picareta', false); p.armL.add(g); p.itemMesh = g; return; }
+                if (ehPa) { const g = modeloPa(false); segurarFerramenta(g, 'pa', false); p.armL.add(g); p.itemMesh = g; return; }
+                if (ehL) { const g = modeloLanca(false); segurarFerramenta(g, 'lanca', false); p.armL.add(g); p.itemMesh = g; return; }
+                if (ehT) { const g = modeloTochaMao(false); segurarFerramenta(g, 'tocha', false); p.armL.add(g); p.itemMesh = g; return; }
                 if (!(item >= 0 && item < NITENS)) return;
                 const g = new THREE.Group();
-                g.position.set(0, -0.92, 0.2);
-                g.rotation.y = 0.7;
+                g.position.set(0, -0.92, -0.06);
+                g.rotation.y = 0;
                 g.add(criarMeshItem(item, 0.36));
-                p.armR.add(g);
+                p.armL.add(g);
                 p.itemMesh = g;
             }
 
@@ -5630,7 +6399,7 @@
                 if (dy < 0) max = Math.min(max, Math.max(0.6, (oy - 0.3) / -dy));
                 for (let d = 0.5; d <= max; d += 0.3) {
                     const id = getBloco(Math.floor(ox + dx * d + 0.5), Math.floor(oy + dy * d), Math.floor(oz + dz * d + 0.5));
-                    if (id && !ehFolha[id]) return Math.max(0.6, d - 0.45);
+                    if (id && !ehFolha[id] && !ehTochaId(id) && (!ehPortaId(id) || portaPonto(id, ox + dx * d, oz + dz * d, 0.25))) return Math.max(0.6, d - 0.45);
                 }
                 return max;
             }
@@ -5641,6 +6410,14 @@
                 ultTs = ts;
                 const agora = performance.now();
                 tempoJogo += dt;
+
+                // dormindo: o tempo passa rápido até amanhecer
+                if (dormindo) {
+                    sonoT += dt;
+                    tempoBase = (tempoDoDia() + dt * 45 / CICLO_S) % 1;
+                    tempoBaseMs = Date.now();
+                    if (sonoT > 2 && tempoDoDia() < 0.3) acordar(true);
+                }
 
                 // vento
                 const forca = forcaVento(tempoJogo);
@@ -5656,6 +6433,7 @@
                 let inZ = (kb.down - kb.up) + joy.y;
                 let len = Math.hypot(inX, inZ);
                 if (len > 1) { inX /= len; inZ /= len; len = 1; }
+                if (dormindo) { inX = 0; inZ = 0; len = 0; }
                 const movendo = len > 0.05;
                 const yawMov = camRotX + Math.atan2(inX, inZ);
                 const tvx = movendo ? Math.sin(yawMov) * VEL_MAX * len : 0;
@@ -5666,13 +6444,13 @@
                 velZ += (tvz - velZ) * kAcel;
                 if (!movendo && Math.abs(velX) + Math.abs(velZ) < 0.05) velX = velZ = 0;
 
-                if (kb.jump || jumpBtn) jumpBuf = 0.12; else jumpBuf -= dt;
+                if (!dormindo && (kb.jump || jumpBtn)) jumpBuf = 0.12; else jumpBuf -= dt;
                 if (noChao) coyote = 0.1; else coyote -= dt;
                 if (jumpBuf > 0 && coyote > 0) { velY = VEL_PULO; noChao = false; coyote = 0; jumpBuf = 0; gastarPulo(); }
 
                 const ox0 = posX, oz0 = posZ;
                 const velMax = Math.max(Math.abs(velX), Math.abs(velZ), Math.abs(velY));
-                const passos = Math.max(1, Math.ceil(velMax * dt / 0.25));
+                const passos = dormindo ? 0 : Math.max(1, Math.ceil(velMax * dt / 0.25));
                 const sdt = dt / passos;
                 for (let s = 0; s < passos; s++) {
                     const dx = velX * sdt, dz = velZ * sdt;
@@ -5697,15 +6475,27 @@
                 atualizarVitais(dt);
 
                 // ---------- Boneco ----------
-                if (movendo) alvoRot = yawMov;
-                rotY = lerpAng(rotY, alvoRot, 1 - Math.exp(-16 * dt));
+                if (!dormindo) alvoRot = camRotX + Math.PI;     // o corpo sempre olha para onde a câmera olha (esse valor vai para o servidor em `rot`)
+                rotY = lerpAng(rotY, alvoRot, 1 - Math.exp(-22 * dt));
                 meuChar.mesh.position.set(posX, posY, posZ);
                 meuChar.mesh.rotation.y = rotY;
                 if (emoteTimer > 0) {
                     emoteTimer -= dt;
                     if (emoteTimer <= 0) { emoteAtivo = ''; balloonEl.style.display = 'none'; }
                 }
+                meuChar.pit = clamp(camRotY * 0.8, -1.0, 1.0);
+                if (meuChar.golpe > golpePrev + 0.01) golpeCont++;          // conta golpes para animar o braço nos outros jogadores
                 aplicarAnimacao(meuChar, velAnim, !noChao, dt, emoteAtivo);
+                golpePrev = meuChar.golpe;
+                dormEnv = null;
+                if (dormindo && camaAtual) {                  // deitado na cama, de barriga para cima, cabeça no travesseiro
+                    const d = DIRS4[camaAtual.o];
+                    meuChar.mesh.position.set(camaAtual.fx + d[0] * 0.5 - d[0] * 0.9, camaAtual.fy + 0.74, camaAtual.fz + d[1] * 0.5 - d[1] * 0.9);
+                    meuChar.mesh.rotation.x = -Math.PI / 2;
+                    meuChar.mesh.rotation.y = Math.atan2(-d[0], -d[1]);
+                    meuChar.blob.visible = false;
+                    dormEnv = [meuChar.mesh.position.x, meuChar.mesh.position.y, meuChar.mesh.position.z, meuChar.mesh.rotation.y];
+                }
                 definirItemNoBraco(meuChar, barra[slotSel]);
                 atualizarBlob(meuChar, posX, posY, posZ);
                 atualizarMobs(dt);
@@ -5726,7 +6516,7 @@
                     // olhos na altura da cabeça do personagem (olhos do Minecraft: 1,62)
                     let olhoY = posY + 1.62;
                     const ebx = Math.floor(posX + 0.5), ebz = Math.floor(posZ + 0.5), eby = Math.floor(olhoY + 0.1);
-                    if (getBloco(ebx, eby, ebz)) olhoY = eby - 0.12;       // teto baixo: não entra no bloco
+                    { const eb = getBloco(ebx, eby, ebz); if (ehSolidoBloco(eb) && (!ehPortaId(eb) || portaPonto(eb, posX, posZ, 0.2))) olhoY = eby - 0.12; }       // teto baixo: não entra no bloco
                     camera.position.set(posX, olhoY, posZ);
                     camera.rotation.set(-camRotY, camRotX, 0);
                 } else {
@@ -5750,6 +6540,7 @@
                     definirClima(Math.random() < 0.4 ? 'chuva' : 'limpo');
                 }
                 atualizarChuva(dt);
+                atualizarNuvens(dt);
 
                 // ---------- Balão de chat do jogador local ----------
                 if (meuBalaoAte) {
@@ -5782,6 +6573,7 @@
                     qOn = true; aimPadrao(_w); qnx = _w[0]; qny = _w[1];
                 }
                 {
+                    if (dormindo) qOn = false;
                     const itSel = barra[slotSel];
                     const podeComer = modoJogo === 'sobrevivencia' && itSel >= 0 && barraQtd[slotSel] > 0 && COMIDA[itSel] > 0 && fome < FOME_MAX - 0.01;
                     if (!qOn) comerBloq = false;
@@ -5809,7 +6601,12 @@
                         seletorMesh.position.set(av.x, av.y + hh / 2, av.z);
                     } else {
                         seletorMesh.scale.set(1, 1, 1);
-                        seletorMesh.position.set(av.x, av.y + 0.5, av.z);
+                        if (ehPortaId(av.id)) {
+                            const pr = portaRect(av.id, av.x, av.z), pby = portaBaixo(av.id) ? av.y : av.y - 1;
+                            seletorMesh.scale.set((pr[1] - pr[0] + 0.02) / 1.02, 2.02 / 1.02, (pr[3] - pr[2] + 0.02) / 1.02);
+                            seletorMesh.position.set((pr[0] + pr[1]) / 2, pby + 1, (pr[2] + pr[3]) / 2);
+                        }
+                        if (!ehPortaId(av.id)) seletorMesh.position.set(av.x, av.y + 0.5, av.z);
                     }
                 } else seletorMesh.visible = false;
                 const mostrarGhost = !qOn && av && !(barra[slotSel] >= ITEM_SEMENTE) && (!IS_TOUCH || (toque.id !== null && toque.modo === 'espera'));
@@ -5824,6 +6621,8 @@
                 // ---------- Efeitos ----------
                 atualizarParticulas(dt);
                 atualizarTochas(dt, posX, posZ);
+                atualizarLuzesMao(dt);
+                atualizarPortas(dt);
                 atualizarAmbiente(dt, tempoJogo, forca);
 
                 // ---------- Remotos ----------
@@ -5840,6 +6639,12 @@
                     const g = atualizarBlob(r, s.x, s.y, s.z);
                     aplicarAnimacao(r, r.velAnim, (s.y - g) > 0.25, dt, r.emoteAtual);
                     definirItemNoBraco(r, r.itemMao === undefined ? -1 : r.itemMao);
+                    if (r.dorm) {                                     // deitado na cama
+                        r.mesh.position.set(r.dorm[0], r.dorm[1], r.dorm[2]);
+                        r.mesh.rotation.x = -Math.PI / 2;
+                        r.mesh.rotation.y = r.dorm[3];
+                        r.blob.visible = false;
+                    } else if (r.mesh.rotation.x !== 0) r.mesh.rotation.x = 0;
                     const tg = tagsNomes[k];
                     if (tg) {
                         _v.set(s.x, s.y + 2.05, s.z).project(camera);
@@ -5949,14 +6754,12 @@
         });
 
         function entrar() {
-            const val = nomeInput.value.trim();
-            if (val) {
-                meuNome = val;
-                store.set('mig_nome', meuNome);
-                store.set('mig_gen', meuGenero);
-                loginScreen.style.display = 'none';
-                iniciarJogo();
-            }
+            const val = nomeInput.value.trim() || 'Jogador';
+            meuNome = val;
+            store.set('mig_nome', meuNome);
+            store.set('mig_gen', meuGenero);
+            loginScreen.style.display = 'none';
+            try { iniciarJogo(); } catch (e) { alert('Erro ao iniciar o jogo: ' + e.message); console.error(e); }
         }
         btnEntrar.addEventListener('click', entrar);
         nomeInput.addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
