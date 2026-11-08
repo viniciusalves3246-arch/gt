@@ -4419,7 +4419,22 @@
             // ============================================================
             const remotos = {};
             const tagsNomes = {};
-            let ultimoSeq = -1;
+            let ultimoSeq = -1, ultimoMev = -1;
+            let golpeCont = 0, golpePrev = 0, dormEnv = null, mortesCont = 0;
+
+            // campos extras enviados ao servidor junto com a posição (animações, mobs, mortes)
+            function mobsUpdEnvio() {
+                const out = [];
+                for (const m of mobs) if (m.id > 0 && m.meu && !m.morto) out.push([m.id, +m.x.toFixed(2), +m.y.toFixed(2), +m.z.toFixed(2), +m.rot.toFixed(2), m.estado, +Math.max(0, m.surgindo).toFixed(2)]);
+                return out.slice(0, 60);
+            }
+            function extraEnvio(mn, md) {
+                return {
+                    pit: +(meuChar.pit || 0).toFixed(2), gp: golpeCont, com: meuChar.comendo ? 1 : 0, qb: meuChar.quebrando ? 1 : 0,
+                    dorm: dormEnv, surv: modoJogo === 'sobrevivencia' ? 1 : 0, mortes: mortesCont,
+                    mobs_novos: mn, mobs_upd: mobsUpdEnvio(), mobs_dano: md
+                };
+            }
             let sincronizando = false, falhas = 0, proximaTentativa = 0, onlineAtual = 1;
 
             function keysEnvio() {
@@ -4477,11 +4492,21 @@
                             document.getElementById('labels-container').appendChild(tag);
                             tagsNomes[j.nome] = tag;
                         } else {
-                            rem.snaps.push(snap);
+                            const ult = rem.snaps[rem.snaps.length - 1];
+                            if (ult && Math.hypot(snap.x - ult.x, snap.z - ult.z) > 10) rem.snaps = [snap];   // teleporte/respawn: não desliza pelo mapa
+                            else rem.snaps.push(snap);
                             if (rem.snaps.length > 12) rem.snaps.shift();
                         }
                         rem.emoteAtual = j.emote;
                         rem.itemMao = typeof j.item === 'number' ? j.item : -1;
+                        rem.pit = typeof j.pit === 'number' ? j.pit : 0;
+                        rem.comendo = !!j.com;
+                        rem.quebrando = !!j.qb;
+                        rem.dorm = Array.isArray(j.dorm) ? j.dorm : null;
+                        if (typeof j.gp === 'number') {
+                            if (rem.gpUlt !== undefined && j.gp !== rem.gpUlt) rem.golpe = 0.25;
+                            rem.gpUlt = j.gp;
+                        }
                     });
                     for (const k in remotos) {
                         if (!presentes.has(k)) {
@@ -4496,6 +4521,16 @@
                 // ---------- itens no chão ----------
                 if (ret.drops) { sincronizarDrops(ret.drops); if (ret.dseq !== undefined) dropsDseq = ret.dseq; }
                 if (ret.ganhos) ret.ganhos.forEach(receberGanho);
+
+                // ---------- mobs (vindos do servidor) ----------
+                if (ret.mseq !== undefined) {
+                    if (ultimoMev < 0 || ret.mseq < ultimoMev) ultimoMev = ret.mseq;        // 1ª resposta ou servidor reiniciou
+                    else {
+                        if (ret.mev) ret.mev.forEach(ev => { if (ev.s > ultimoMev) aplicarEventoMob(ev); });
+                        ultimoMev = Math.max(ultimoMev, ret.mseq);
+                    }
+                }
+                if (ret.mobs) sincronizarMobs(ret.mobs);
 
                 // ---------- chat ----------
                 if (ret.cseq !== undefined) {
@@ -4535,11 +4570,13 @@
                 const lista = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chats = chatPend.splice(0, 3);
                 const dn = dropsNovosPend.splice(0, 8), pg = pegarPend.splice(0, 16);
+                const mn = mobsNovosPend.splice(0, 4), md = mobsDanoPend.splice(0, 8);
                 const msg = {
                     dados_jogador: {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg, item: barra[slotSel]
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: lista, chat: chats, drops_novos: dn, pegar: pg, item: barra[slotSel],
+                        ...extraEnvio(mn, md)
                     }
                 };
                 if (lista.length) { const id = ++edId; emVoo.push({ id, lista }); msg.ed = id; }
@@ -4549,6 +4586,8 @@
                     if (chats.length) chatPend.unshift(...chats);
                     if (dn.length) dropsNovosPend.unshift(...dn);
                     if (pg.length) pegarPend.unshift(...pg);
+                    if (mn.length) mobsNovosPend.unshift(...mn);
+                    if (md.length) mobsDanoPend.unshift(...md);
                 }
             }
             conectarWS();
@@ -4562,16 +4601,18 @@
                 const enviados = bufferEdicoes.splice(0, bufferEdicoes.length);
                 const chatsEnv = chatPend.splice(0, 3);
                 const dnEnv = dropsNovosPend.splice(0, 8), pgEnv = pegarPend.splice(0, 16);
+                const mnEnv = mobsNovosPend.splice(0, 4), mdEnv = mobsDanoPend.splice(0, 8);
                 try {
                     const dados = {
                         nome: meuNome, genero: meuGenero,
                         x: posX, y: posY, z: posZ, rot: rotY,
-                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv, item: barra[slotSel]
+                        emote: emoteAtivo, keys: keysEnvio(), blocos: enviados, chat: chatsEnv, drops_novos: dnEnv, pegar: pgEnv, item: barra[slotSel],
+                        ...extraEnvio(mnEnv, mdEnv)
                     };
                     const res = await fetch('/sync', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat, desdeDrops: dropsDseq })
+                        body: JSON.stringify({ dados_jogador: dados, desde: ultimoSeq, desdeChat: ultimoChat, desdeDrops: dropsDseq, desdeMev: ultimoMev })
                     });
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     const ret = await res.json();
@@ -4581,6 +4622,8 @@
                     if (chatsEnv.length) chatPend.unshift(...chatsEnv);
                     if (dnEnv.length) dropsNovosPend.unshift(...dnEnv);
                     if (pgEnv.length) pegarPend.unshift(...pgEnv);
+                    if (mnEnv.length) mobsNovosPend.unshift(...mnEnv);
+                    if (mdEnv.length) mobsDanoPend.unshift(...mdEnv);
                     if (bufferEdicoes.length > 2000) bufferEdicoes.splice(0, bufferEdicoes.length - 2000);
                     falhas++;
                     proximaTentativa = performance.now() + Math.min(5000, 200 * Math.pow(2, falhas));
@@ -4657,7 +4700,7 @@
                 sm(p.armR.rotation, 'x', aRx); sm(p.armR.rotation, 'y', aRy); sm(p.armR.rotation, 'z', aRz);
                 sm(p.armL.rotation, 'x', aLx); sm(p.armL.rotation, 'y', aLy); sm(p.armL.rotation, 'z', aLz);
                 sm(p.legR.rotation, 'x', lRx); sm(p.legL.rotation, 'x', lLx);
-                sm(p.head.rotation, 'x', hx);
+                sm(p.head.rotation, 'x', hx + (p.pit || 0));
                 p.mesh.rotation.y += corpoYaw;
                 p.mesh.position.y += bob;
             }
@@ -4881,6 +4924,10 @@
             };
             const mobs = [];
             let tSpawn = 0, tSpawnZ = 4;
+            const MOB_TIPOS = ['ovelha', 'porco', 'zumbi'];     // índice usado no protocolo com o servidor
+            const mobsPorId = new Map();                         // id do servidor -> mob
+            const mobsNovosPend = [];                            // [tipo,x,y,z] pedidos de criação
+            const mobsDanoPend = [];                             // [id,dano,dirX,dirZ,fogo] danos que causei
 
             // ---------- Modelo (caixas com textura pixelada) ----------
             const mobMat = (hex, q) => new THREE.MeshLambertMaterial({
@@ -5041,7 +5088,8 @@
             }
 
             // ---------- Spawn / despawn ----------
-            function criarMob(tipo, x, y, z) {
+            // id > 0: mob do servidor (o dono simula, os outros interpolam) · id <= 0: mob local (offline)
+            function criarMob(tipo, x, y, z, id) {
                 const zumbi = tipo === 'zumbi';
                 const mod = zumbi ? criarZumbiModelo() : criarMobModelo(tipo);
                 const m = {
@@ -5050,23 +5098,30 @@
                     vel: MOB.VEL * (0.85 + Math.random() * 0.3), anim: Math.random() * 6, cabRot: 0,
                     hp: zumbi ? 20 : 4, hpMax: zumbi ? 20 : 4, hurt: 0, morto: false, mats: mod.mats,
                     hostil: zumbi, surgindo: zumbi ? 1.6 : 0, bracos: mod.bracos || null,
-                    danoEspera: 0, queimando: 0,
+                    danoEspera: 0, queimando: 0, id: id || 0, meu: !(id > 0), dono: '', snaps: null, fogoAcc: 0,
                     mesh: mod.grupo, pernas: mod.pernas, cabeca: mod.cabeca, blob: criarBlob()
                 };
                 m.alvoRot = m.rot;
                 m.mesh.position.set(x, y, z);
                 scene.add(m.mesh);
                 mobs.push(m);
+                return m;
+            }
+            // pede ao servidor para criar o mob (ele aparece para todos); sem servidor, cria só aqui
+            function pedirMob(tipo, x, y, z, local) {
+                if (!local && conectado()) mobsNovosPend.push([MOB_TIPOS.indexOf(tipo), +x.toFixed(2), +y.toFixed(2), +z.toFixed(2)]);
+                else criarMob(tipo, x, y, z, 0);
             }
             function removerMob(i) {
                 const m = mobs[i];
+                if (m.id > 0) mobsPorId.delete(m.id);
                 scene.remove(m.mesh); scene.remove(m.blob);
                 descartarPersonagem(m);
                 mobs.splice(i, 1);
             }
             // Tenta criar UM grupo (1 a 2 mobs da mesma espécie). Retorna true se criou.
-            function tentarSpawn() {
-                if (mobs.length >= MOB.MAX) return false;
+            function tentarSpawn(local) {
+                if (mobs.length >= MOB.MAX || mobsNovosPend.length) return false;
                 const ang = Math.random() * 6.283;
                 const d = MOB.DIST_MIN + Math.random() * (MOB.DIST_MAX - MOB.DIST_MIN);
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
@@ -5076,11 +5131,11 @@
                 if (y < 0) return false;
                 const tipo = Math.random() < 0.5 ? 'ovelha' : 'porco';
                 const n = Math.min(MOB.GRUPO_MAX, MOB.MAX - mobs.length, Math.random() < 0.45 ? 2 : 1);
-                criarMob(tipo, x, y, z);
+                pedirMob(tipo, x, y, z, local);
                 if (n > 1) {
                     const px = x + (Math.random() < 0.5 ? -2 : 2), pz = z + (Math.random() < 0.5 ? -2 : 2);
                     const py = chunks.has(ckKey(px >> 4, pz >> 4)) ? soloMob(px, pz) : -1;
-                    if (py >= 0) criarMob(tipo, px, py, pz);
+                    if (py >= 0) pedirMob(tipo, px, py, pz, local);
                 }
                 return true;
             }
@@ -5091,14 +5146,14 @@
                 if (dormindo || DIA_V > 0.34) return false;                      // só à noite (ou bem no entardecer)
                 let nZ = 0;
                 for (const m of mobs) if (m.hostil) nZ++;
-                if (nZ >= 8) return false;
+                if (nZ >= 8 || mobsNovosPend.length) return false;
                 const ang = Math.random() * 6.283;
                 const d = 13 + Math.random() * 25;
                 const x = Math.round(posX + Math.cos(ang) * d), z = Math.round(posZ + Math.sin(ang) * d);
                 if (!chunks.has(ckKey(x >> 4, z >> 4))) return false;
                 const y = soloMob(x, z);
                 if (y < 0) return false;
-                criarMob('zumbi', x, y, z);
+                pedirMob('zumbi', x, y, z);
                 return true;
             }
 
@@ -5132,9 +5187,12 @@
                 }
                 if (m.hostil && DIA_V > 0.72) {             // queima ao amanhecer
                     m.queimando += dt;
-                    m.hp -= dt * 2.2;
+                    if (m.id > 0) {                          // mob do servidor: o dono avisa o dano de fogo
+                        m.fogoAcc += dt * 2.2;
+                        if (m.fogoAcc >= 1) { m.fogoAcc -= 1; mobsDanoPend.push([m.id, 1, 0, 0, 1]); }
+                    } else m.hp -= dt * 2.2;
                     if (Math.random() < dt * 7) explodirBloco(Math.round(m.x), Math.floor(m.y + 1.1), Math.round(m.z), 0, 0x8a8a8a);
-                    if (m.hp <= 0) { matarMob(m); return; }
+                    if (m.id <= 0 && m.hp <= 0) { matarMob(m); return; }
                 }
 
                 // máquina de estados (parado → anda ou come → parado …)
@@ -5153,7 +5211,8 @@
                 // movimento horizontal
                 let v = 0;
                 if (m.hostil) {                                   // zumbi: persegue o jogador
-                    const dx = posX - m.x, dz = posZ - m.z;
+                    const al = alvoZumbi(m);
+                    const dx = al.x - m.x, dz = al.z - m.z;
                     const dd = Math.hypot(dx, dz);
                     if (dd > 0.05) {
                         m.rot = lerpAng(m.rot, Math.atan2(dx, dz), 1 - Math.exp(-7 * dt));
@@ -5164,13 +5223,7 @@
                         m.rot = m.alvoRot = m.rot + Math.PI * (0.6 + Math.random() * 0.8);
                         v = 0;
                     }
-                    // ataque
-                    m.danoEspera -= dt;
-                    if (dd < 1.9 && m.danoEspera <= 0 && Math.abs(m.y - posY) < 2.2) {
-                        machucarJogador(2, dx / (dd || 1), dz / (dd || 1));
-                        m.danoEspera = 1.1;
-                        m.golpe = 0.25;
-                    }
+                    // (o ataque é aplicado por zumbisAtacam(), em cada jogador que estiver perto)
                 } else if (m.estado === 1) {
                     m.rot = lerpAng(m.rot, m.alvoRot, 1 - Math.exp(-5 * dt));
                     v = m.vel;
@@ -5217,6 +5270,118 @@
                 m.cabeca.rotation.x = m.cabRot;
             }
 
+            // zumbi persegue o jogador mais próximo (eu ou outro jogador online)
+            function alvoZumbi(m) {
+                let melhor = { x: posX, z: posZ }, md = Math.hypot(posX - m.x, posZ - m.z);
+                for (const k in remotos) {
+                    const rp = remotos[k].mesh.position;
+                    const d = Math.hypot(rp.x - m.x, rp.z - m.z);
+                    if (d < md) { md = d; melhor = { x: rp.x, z: rp.z }; }
+                }
+                return melhor;
+            }
+            // cada cliente aplica o dano dos zumbis ao PRÓPRIO jogador
+            function zumbisAtacam(dt) {
+                for (const m of mobs) {
+                    if (!m.hostil || m.morto) continue;
+                    if (m.danoEspera > 0) m.danoEspera -= dt;
+                    if (m.surgindo > 0) continue;
+                    const dx = posX - m.x, dz = posZ - m.z, dd = Math.hypot(dx, dz);
+                    if (dd < 1.9 && m.danoEspera <= 0 && Math.abs(m.y - posY) < 2.2) {
+                        machucarJogador(2, dx / (dd || 1), dz / (dd || 1));
+                        m.danoEspera = 1.1;
+                        m.golpe = 0.25;
+                    }
+                }
+            }
+            // mob de outro dono: só interpola a posição recebida do servidor e anima
+            function atualizarMobRemoto(m, dt, tRender) {
+                const s = amostrarRemoto(m, tRender);
+                const ox = m.x, oz = m.z;
+                m.x = s.x; m.y = s.y; m.z = s.z; m.rot = s.r;
+                if (m.hurt > 0) {
+                    m.hurt -= dt;
+                    if (m.hurt <= 0) { m.hurt = 0; m.mesh.scale.set(1, 1, 1); for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x000000); }
+                }
+                const vr = Math.min(6, Math.hypot(m.x - ox, m.z - oz) / Math.max(dt, 0.001));
+                let sw;
+                if (m.surgindo > 0) { m.anim += dt * 2.2; sw = Math.sin(m.anim * 3) * 0.3; }
+                else { m.anim += vr * dt * 5.5; sw = Math.sin(m.anim) * Math.min(1, vr / 1.0) * 0.7; }
+                m.pernas[0].rotation.x = sw; m.pernas[3].rotation.x = sw;
+                m.pernas[1].rotation.x = -sw; m.pernas[2].rotation.x = -sw;
+                const alvoCab = m.estado === 2 ? 0.95 + Math.sin(performance.now() / 1000 * 11) * 0.12 : 0;
+                m.cabRot += (alvoCab - m.cabRot) * (1 - Math.exp(-10 * dt));
+                m.cabeca.rotation.x = m.cabRot;
+            }
+
+            // ---------- Servidor -> cliente: lista de mobs, dano e morte ----------
+            function sincronizarMobs(lista) {
+                const agoraMs = performance.now();
+                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id <= 0) removerMob(i);   // mobs locais (offline) saem quando o servidor assume
+                const vistos = new Set();
+                for (const d of lista) {
+                    const id = d[0];
+                    if (!(d[1] >= 0 && d[1] < MOB_TIPOS.length)) continue;
+                    vistos.add(id);
+                    let m = mobsPorId.get(id);
+                    if (!m) {
+                        m = criarMob(MOB_TIPOS[d[1]], d[2], d[3], d[4], id);
+                        m.rot = m.alvoRot = d[5];
+                        m.meu = false;
+                        m.snaps = [{ t: agoraMs, x: d[2], y: d[3], z: d[4], r: d[5] }];
+                        mobsPorId.set(id, m);
+                    }
+                    m.hp = d[7]; m.dono = d[8];
+                    const meu = d[8] === meuNome;
+                    if (meu) {
+                        if (!m.meu) { m.meu = true; m.vy = 0; m.noChao = true; m.t = 0.3; }   // virei o dono: continuo de onde ele estava
+                    } else {
+                        if (m.meu) { m.meu = false; m.snaps = [{ t: agoraMs, x: m.x, y: m.y, z: m.z, r: m.rot }]; }
+                        m.snaps.push({ t: agoraMs, x: d[2], y: d[3], z: d[4], r: d[5] });
+                        if (m.snaps.length > 12) m.snaps.shift();
+                        m.estado = d[6]; m.surgindo = d[9] || 0;
+                    }
+                }
+                for (let i = mobs.length - 1; i >= 0; i--) if (mobs[i].id > 0 && !vistos.has(mobs[i].id)) removerMob(i);
+            }
+            function efeitoDanoMob(m) {
+                m.hurt = 0.22;
+                for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
+                m.mesh.scale.set(1.08, 0.9, 1.08);
+                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
+                if (Math.hypot(m.x - posX, m.z - posZ) < 30) sfxMobDano();
+            }
+            // quem simula o mob reage ao golpe (foge e é empurrado)
+            function reacaoDanoMob(m, dirX, dirZ, atX, atZ) {
+                m.estado = 1; m.t = 0.9 + Math.random() * 0.5;
+                m.alvoRot = Math.atan2(m.x - atX, m.z - atZ);
+                m.vy = Math.max(m.vy, 5.5); m.noChao = false;
+                const emp = 0.35;
+                if (!colideMob(m.x + dirX * emp, m.y, m.z)) m.x += dirX * emp;
+                if (!colideMob(m.x, m.y, m.z + dirZ * emp)) m.z += dirZ * emp;
+            }
+            function aplicarEventoMob(ev) {
+                if (ev.t === 'p') { if (ev.n !== meuNome) msgSistema(ev.n + ' morreu.'); return; }
+                const m = mobsPorId.get(ev.i);
+                if (ev.t === 'd') {
+                    if (!m || ev.por === meuNome) return;            // o meu golpe já mostrou o efeito na hora
+                    efeitoDanoMob(m);
+                    if (m.meu) {
+                        const r = remotos[ev.por];
+                        reacaoDanoMob(m, ev.x, ev.z, r ? r.mesh.position.x : m.x - ev.x, r ? r.mesh.position.z : m.z - ev.z);
+                    }
+                } else if (ev.t === 'm') {
+                    const tipo = MOB_TIPOS[ev.k] || 'ovelha';
+                    explodirBloco(Math.round(ev.x), Math.floor(ev.y + 0.4), Math.round(ev.z), 0, ev.k === 2 ? 0x4e7f3a : 0x8f2f24);
+                    if (Math.hypot(ev.x - posX, ev.z - posZ) < 40) sfxMobMorte(tipo);
+                    if (m) { const i = mobs.indexOf(m); if (i >= 0) removerMob(i); }
+                    if (ev.por === meuNome && modoJogo !== 'sobrevivencia' && ev.k !== 2 && !avisoCarne) {
+                        avisoCarne = true;
+                        msgSistema('Os animais só soltam carne para pegar no modo sobrevivência (/sobrevivencia).');
+                    }
+                }
+            }
+
             function atualizarMobs(dt) {
                 tSpawn -= dt;
                 if (tSpawn <= 0) {
@@ -5228,22 +5393,33 @@
                     tSpawnZ = 2.5 + Math.random() * 3;
                     for (let i = 0; i < 3 && !tentarSpawnZumbi(); i++);
                 }
+                const agoraMs = performance.now(), tRender = agoraMs - ATRASO_INTERP;
                 for (let i = mobs.length - 1; i >= 0; i--) {
                     const m = mobs[i];
-                    if (m.y < -8 || Math.hypot(m.x - posX, m.z - posZ) > MOB.DESPAWN) { removerMob(i); continue; }
-                    atualizarMob(m, dt);
+                    if (m.id > 0) {
+                        if (m.morto) {                                // golpe fatal enviado: espera o servidor confirmar
+                            if (agoraMs - m.mortoT > 2500) { m.morto = false; m.mesh.visible = true; m.blob.visible = true; }
+                            continue;
+                        }
+                        if (m.meu) atualizarMob(m, dt); else atualizarMobRemoto(m, dt, tRender);
+                    } else {
+                        if (m.y < -8 || Math.hypot(m.x - posX, m.z - posZ) > MOB.DESPAWN) { removerMob(i); continue; }
+                        atualizarMob(m, dt);
+                    }
                 }
-                // afasta mobs sobrepostos
+                zumbisAtacam(dt);
+                // afasta mobs sobrepostos (só move quem eu simulo)
                 for (let i = 0; i < mobs.length; i++) for (let j = i + 1; j < mobs.length; j++) {
                     const a = mobs[i], b = mobs[j];
                     const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz);
                     if (d < 0.9 && d > 1e-4) {
                         const f = (0.9 - d) * 0.5 * Math.min(1, dt * 6) / d;
-                        if (!colideMob(a.x - dx * f, a.y, a.z - dz * f)) { a.x -= dx * f; a.z -= dz * f; }
-                        if (!colideMob(b.x + dx * f, b.y, b.z + dz * f)) { b.x += dx * f; b.z += dz * f; }
+                        if (a.meu && !colideMob(a.x - dx * f, a.y, a.z - dz * f)) { a.x -= dx * f; a.z -= dz * f; }
+                        if (b.meu && !colideMob(b.x + dx * f, b.y, b.z + dz * f)) { b.x += dx * f; b.z += dz * f; }
                     }
                 }
                 for (const m of mobs) {
+                    if (m.morto) continue;
                     const desc = m.surgindo > 0 ? 1.9 * (1 - clamp(1 - m.surgindo / 1.6, 0, 1)) : 0;
                     m.mesh.position.set(m.x, m.y - desc, m.z);
                     m.mesh.rotation.y = m.rot;
@@ -5254,7 +5430,7 @@
                     atualizarBlob(m, m.x, m.y, m.z);
                 }
             }
-            for (let i = 0; i < 4; i++) tentarSpawn();   // população inicial
+            for (let i = 0; i < 4; i++) tentarSpawn(true);   // população inicial (local; com servidor, os mobs vêm dele)
 
             // ============================================================
             // GRILOS — no máximo 2 no mapa: saltam pela grama e fazem cri-cri
@@ -5758,6 +5934,7 @@
                 tom(190, 80, 0.24, 0.22, 'sawtooth');
                 if (dirX !== undefined) { velX += dirX * 5.5; velZ += dirZ * 5.5; }
                 if (vida <= 0) {
+                    mortesCont++;
                     posX = 0; posZ = 0; posY = alturaAt(0, 0);
                     while (colide(posX, posY, posZ) && posY < 60) posY += 1;
                     velX = velY = velZ = 0;
@@ -5768,18 +5945,17 @@
 
             function machucarMob(m, dano, dirX, dirZ) {
                 if (m.morto) return;
+                efeitoDanoMob(m);
+                if (m.id > 0) {
+                    // mob do servidor: o servidor tira a vida, decide a morte e solta o drop para todos
+                    mobsDanoPend.push([m.id, dano, +dirX.toFixed(2), +dirZ.toFixed(2)]);
+                    m.hp -= dano;
+                    if (m.hp <= 0) { m.morto = true; m.mortoT = performance.now(); m.mesh.visible = false; m.blob.visible = false; return; }
+                    if (m.meu) reacaoDanoMob(m, dirX, dirZ, posX, posZ);
+                    return;
+                }
                 m.hp -= dano;
-                m.hurt = 0.22;
-                for (const mt of m.mats) if (mt.emissive) mt.emissive.setHex(0x8a1f1f);
-                m.mesh.scale.set(1.08, 0.9, 1.08);
-                m.estado = 1; m.t = 0.9 + Math.random() * 0.5;
-                m.alvoRot = Math.atan2(m.x - posX, m.z - posZ);       // corre para longe
-                m.vy = Math.max(m.vy, 5.5); m.noChao = false;
-                const emp = 0.35;
-                if (!colideMob(m.x + dirX * emp, m.y, m.z)) m.x += dirX * emp;
-                if (!colideMob(m.x, m.y, m.z + dirZ * emp)) m.z += dirZ * emp;
-                explodirBloco(Math.round(m.x), Math.floor(m.y + 0.4), Math.round(m.z), 0, 0xb03a2e);
-                sfxMobDano();
+                reacaoDanoMob(m, dirX, dirZ, posX, posZ);
                 if (m.hp <= 0) matarMob(m);
             }
 
@@ -6087,21 +6263,26 @@
                 atualizarVitais(dt);
 
                 // ---------- Boneco ----------
-                if (movendo) alvoRot = yawMov;
-                rotY = lerpAng(rotY, alvoRot, 1 - Math.exp(-16 * dt));
+                if (!dormindo) alvoRot = camRotX + Math.PI;     // o corpo sempre olha para onde a câmera olha (esse valor vai para o servidor em `rot`)
+                rotY = lerpAng(rotY, alvoRot, 1 - Math.exp(-22 * dt));
                 meuChar.mesh.position.set(posX, posY, posZ);
                 meuChar.mesh.rotation.y = rotY;
                 if (emoteTimer > 0) {
                     emoteTimer -= dt;
                     if (emoteTimer <= 0) { emoteAtivo = ''; balloonEl.style.display = 'none'; }
                 }
+                meuChar.pit = clamp(camRotY * 0.8, -1.0, 1.0);
+                if (meuChar.golpe > golpePrev + 0.01) golpeCont++;          // conta golpes para animar o braço nos outros jogadores
                 aplicarAnimacao(meuChar, velAnim, !noChao, dt, emoteAtivo);
+                golpePrev = meuChar.golpe;
+                dormEnv = null;
                 if (dormindo && camaAtual) {                  // deitado na cama, de barriga para cima, cabeça no travesseiro
                     const d = DIRS4[camaAtual.o];
                     meuChar.mesh.position.set(camaAtual.fx + d[0] * 0.5 - d[0] * 0.9, camaAtual.fy + 0.74, camaAtual.fz + d[1] * 0.5 - d[1] * 0.9);
                     meuChar.mesh.rotation.x = -Math.PI / 2;
                     meuChar.mesh.rotation.y = Math.atan2(-d[0], -d[1]);
                     meuChar.blob.visible = false;
+                    dormEnv = [meuChar.mesh.position.x, meuChar.mesh.position.y, meuChar.mesh.position.z, meuChar.mesh.rotation.y];
                 }
                 definirItemNoBraco(meuChar, barra[slotSel]);
                 atualizarBlob(meuChar, posX, posY, posZ);
@@ -6244,6 +6425,12 @@
                     const g = atualizarBlob(r, s.x, s.y, s.z);
                     aplicarAnimacao(r, r.velAnim, (s.y - g) > 0.25, dt, r.emoteAtual);
                     definirItemNoBraco(r, r.itemMao === undefined ? -1 : r.itemMao);
+                    if (r.dorm) {                                     // deitado na cama
+                        r.mesh.position.set(r.dorm[0], r.dorm[1], r.dorm[2]);
+                        r.mesh.rotation.x = -Math.PI / 2;
+                        r.mesh.rotation.y = r.dorm[3];
+                        r.blob.visible = false;
+                    } else if (r.mesh.rotation.x !== 0) r.mesh.rotation.x = 0;
                     const tg = tagsNomes[k];
                     if (tg) {
                         _v.set(s.x, s.y + 2.05, s.z).project(camera);
